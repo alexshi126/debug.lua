@@ -23,6 +23,8 @@ local cmd_output = {}
 local pinned_evals = {}
 local display_pinned = true
 
+---------- misc helpers ------------------------------------------------
+
 local function output(...)
 	cmd_output[#cmd_output+1] = table.concat({...}, " ")
 end
@@ -138,6 +140,8 @@ local function set_current_file(file)
 	current_src = src
 end
 
+---------- render display ----------------------------------------------
+
 local function displaysource_renderrow(r, s, x, y, w, extra)
 	local isbrk = extra.isbrk
 	local linew = extra.linew
@@ -239,7 +243,7 @@ local function display()
 	-- source view
 	ui.attributes(ui.color.WHITE, ui.color.BLACK)
 	displaysource(current_src, 1, 2, srcw, srch)
-	ui.drawstatus({"File: "..current_file, "Line: "..current_line, ""}, srch + 1)
+	ui.drawstatus({"File: "..current_file, "Line: "..current_line, #pinned_evals > 0 and "pinned: " .. #pinned_evals or ""}, srch + 1)
 	
 	-- variables view
 	if pinw > 0 then
@@ -259,6 +263,8 @@ local function display()
 
 	ui.present()
 end
+
+---------- starting up the debugger ------------------------------------
 
 local function unquote(s)
 	s = string.gsub(s, "^%s*(%S.+%S)%s*$", "%1")
@@ -312,7 +318,7 @@ local function startup()
 	return true
 end
 
--- debugger commands
+---------- debugger commands -------------------------------------------
 
 local function dbg_help(cmdl)
 	local em = ui.color.WHITE + ui.format.BOLD
@@ -320,7 +326,8 @@ local function dbg_help(cmdl)
 		"commands without arguments are executed immediately,",
 		"without the need to press Enter. Commands with",
 		"arguments will present you with a command line to",
-		"enter the whole command into.",
+		"enter the whole command into. You can cancel this",
+		"and all popups using the ESC key.",
 		"",
 		"Commands:",
 		"=========",
@@ -328,7 +335,7 @@ local function dbg_help(cmdl)
 		"db [file] line| delete breakpoint",
 		"= expr        | evaluate expression",
 		"! expr        | evaluate and pin expression",
-		"d! num        | delete pinned expression",
+		"d! [num]      | delete one or all pinned expressions",
 		"n             | step over next statement",
 		"s             | step into next statement",
 		"r             | run program",
@@ -417,19 +424,26 @@ local function dbg_pin_eval(cmdl)
 	end
 	table.insert(pinned_evals, 1, expr)
 	local res, line, err = mdb.handle("eval " .. expr, client)
+	if not err and res == nil then res = "nil" end
 	return res, err
 end
 
 local function dbg_delpin(cmdl)
-	local pin = string.match(cmdl, "^d!%s*(%d+)%s*$")
+	local pin = string.match(cmdl, "^d!%s*(%d*)%s*$")
 	if not pin then
-		return nil, "command requires one numeric argument"
+		return nil, "command requires none or one numeric argument"
 	end
-	pin = tonumber(pin)
-	if pin >= 1 and pin <= #pinned_evals then
-		table.remove(pinned_evals, pin)
+	if pin ~= '' then
+		pin = tonumber(pin)
+		if pin >= 1 and pin <= #pinned_evals then
+			table.remove(pinned_evals, pin)
+			return "deleted pinned expession #" .. tostring(pin)
+		else
+			return nil, "invalid pin number"
+		end
 	else
-		return nil, "invalid pin number"
+		pinned_evals = {}
+		return "deleted all pinned expessions"
 	end
 end
 
@@ -551,7 +565,7 @@ local dbg_cmdl = {
 	['S'] = dbg_showfile,
 }
 
--- main
+---------- main --------------------------------------------------------
 
 local main = coroutine.create(function()
 

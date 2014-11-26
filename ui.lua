@@ -572,7 +572,7 @@ end
 -- draw a status bar. The last element in tbl is always right aligned,
 -- the rest is left aligned.
 local function drawstatus(tbl, y, w, sep)
-	sep = sep or '|'
+	sep = sep or config.sep
 	tfx.attributes(config.elem_fg, config.elem_bg)
 	local w = tfx.width()
 	local tw = 1
