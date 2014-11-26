@@ -19,6 +19,7 @@ local current_src = {}
 local current_file = ""
 local current_line = 0
 local selected_line
+local select_cmd
 local cmd_output = {}
 local pinned_evals = {}
 local display_pinned = true
@@ -159,22 +160,22 @@ local function displaysource_renderrow(r, s, x, y, w, extra)
 
 	local fg, bg = ui.attributes()
 	
-	if extra.selected == r then
+	if extra.sel == r then
 		ui.attributes(ui.getconfig('sel_fg'), ui.getconfig('sel_bg'))
 	end
 
-	if type(s) == "string" then return ui.drawfield(x + linew + 3, y, s, w - linew - 3) end
-
-	return nil
+	return ui.drawfield(x + linew + 3, y, tostring(s), w - linew - 3)
 end
 
 function displaysource(source, x, y, w, h)
 	local extra = {
 		isbrk = source.breakpts,
 		cur = current_line,
+		sel = selected_line,
 		linew = math.ceil(math.log10 and math.log10(source.lines) or math.log(source.lines, 10))
 	}
-	local first = current_line - math.floor(h/2)
+	local first = (selected_line and selected_line or current_line) - math.floor(h/2)
+
 	if first < 1 then
 		first = 1
 	elseif first + h > #source.txt then
@@ -183,14 +184,13 @@ function displaysource(source, x, y, w, h)
 	ui.drawlist(source.txt, first, x, y, w, h, displaysource_renderrow, extra)
 end
 
-
 function displaypinned_renderrow(r, s, x, y, w, extra)
 	local w1 = math.floor((w - 3) / 2)
 	local w2 = w - w1
 	if s then
 		ui.drawfield(x, y, string.format("%2d:", r), 3)
 		ui.drawfield(x + 3, y, s[1], w1 - 1)
-		ui.setcell(x + 3 + w1 - 1, y, '|')
+		ui.setcell(x + 3 + w1 - 1, y, '=')
 		ui.drawfield(x + 3 + w1, y, s[2], w2)
 	end
 end
@@ -199,6 +199,9 @@ function displaypinned(pinned, x, y, w, h)
 	local extra
 	local t = {}
 	if h > 99 then h = 99 end
+	while #pinned_evals > h do
+		table.remove(pinned_evals, 1)
+	end
 	for i = 1, h do
 		local expr = pinned_evals[i]
 		if expr then
@@ -210,9 +213,7 @@ function displaypinned(pinned, x, y, w, h)
 			end
 		end
 	end
-	for i = h+1, #pinned_evals do
-		pinned_evals[i] = nil
-	end
+	ui.rect(x, y, w, h)
 	ui.drawlist(t, 1, x, y, w, h, displaypinned_renderrow, extra)
 end
 
@@ -239,16 +240,42 @@ local function display()
 	
 	ui.clear(ui.color.WHITE, ui.color.BLACK)
 	ui.drawstatus({"Skript: "..(basefile or ""), "Dir: "..(basedir or ""), "press h for help"}, 1, ' | ')
-	
+
 	-- source view
+	if select_cmd then
+		selected_line = selected_line or current_line
+		if select_cmd == ui.key.ARROW_UP then
+			selected_line = selected_line - 1
+		elseif select_cmd == ui.key.ARROW_DOWN then
+			selected_line = selected_line + 1
+		elseif select_cmd == ui.key.PGUP then
+			selected_line = selected_line - srch
+		elseif select_cmd == ui.key.PGDN then
+			selected_line = selected_line + srch
+		elseif select_cmd == ui.key.HOME then
+			selected_line = 1
+		elseif select_cmd == ui.key.END then
+			selected_line = current_src.lines
+		end
+		select_cmd = nil
+	end
+
+	if selected_line then
+		if selected_line < 1 then
+			selected_line = 1
+		elseif selected_line > current_src.lines then
+			selected_line = current_src.lines
+		end
+	end
+		
 	ui.attributes(ui.color.WHITE, ui.color.BLACK)
-	displaysource(current_src, 1, 2, srcw, srch)
-	ui.drawstatus({"File: "..current_file, "Line: "..current_line, #pinned_evals > 0 and "pinned: " .. #pinned_evals or ""}, srch + 1)
+	displaysource(current_src, 1, 2, srcw, srch-1)
+	ui.drawstatus({"File: "..current_file, "Line: "..current_line.."/"..current_src.lines, #pinned_evals > 0 and "pinned: " .. #pinned_evals or ""}, srch + 1)
 	
 	-- variables view
 	if pinw > 0 then
-		ui.attributes(ui.color.WHITE, ui.color.BLACK)
-		displaypinned(pinned_evals, srcw + 1, 2, pinw, srch)
+		ui.attributes(ui.color.WHITE, ui.color.BLUE)
+		displaypinned(pinned_evals, srcw + 1, 2, pinw, srch-1)
 	end
 
 	-- commands view
@@ -287,7 +314,7 @@ end
 local function startup()
 	ui.attributes(ui.getconfig('fg'), ui.getconfig('bg'))
 
-	local msg = "Run the program you wish to debug"
+	local msg = "Waiting for connections on port "..port
 	local x, y, w, h = ui.frame(#msg, 5, "debug.lua")
 	ui.printat(x, y+1, msg, w)
 	ui.present()
@@ -340,12 +367,15 @@ local function dbg_help(cmdl)
 		"s             | step into next statement",
 		"r             | run program",
 		"c num         | continue for num steps",
-		"R             | reload program",
+		"R             | restart debugging session",
 		"B dir         | set basedir",
 		"P             | toggle pinned expressions display",
 		"S file        | show source file",
 		"h             | help",
-		"q             | quit"
+		"q             | quit",
+		"[page] up/down| navigate source file",
+		"left/right    | select current line",
+		".             | reset view",
 	}
 	ui.text(t, "Help")
 end
@@ -422,7 +452,7 @@ local function dbg_pin_eval(cmdl)
 	if not expr then
 		return nil, "command requires an expression as argument"
 	end
-	table.insert(pinned_evals, 1, expr)
+	table.insert(pinned_evals, expr)
 	local res, line, err = mdb.handle("eval " .. expr, client)
 	if not err and res == nil then res = "nil" end
 	return res, err
@@ -546,6 +576,10 @@ local function dbg_showfile(cmdl)
 	current_src = src
 end
 
+local function dbg_return(cmdl)
+	-- does nothing, the main loop does everything.
+end
+
 local dbg_imm = {
 	['h'] = dbg_help,
 	['s'] = dbg_step,
@@ -553,6 +587,7 @@ local dbg_imm = {
 	['r'] = dbg_run,
 	['R'] = dbg_reload,
 	['P'] = dbg_toggle_pinned,
+	['.'] = dbg_return,
 }
 
 local dbg_cmdl = {
@@ -563,6 +598,11 @@ local dbg_cmdl = {
 	['!'] = dbg_pin_eval,
 	['B'] = dbg_set_basedir,
 	['S'] = dbg_showfile,
+}
+
+local use_selection = {
+	['b'] = function() return "b " .. tostring(selected_line) end,
+	['d'] = function() if current_src.breakpts[selected_line] then return "db " .. tostring(selected_line) else return "d" end end,
 }
 
 ---------- main --------------------------------------------------------
@@ -595,19 +635,23 @@ local main = coroutine.create(function()
 		w, h = ui.size()
 		display()
 		evt = ui.pollevent()
-		if evt and evt.char then
-			ch = evt.char or ''
+		if evt and evt.char ~= "" then
+			local ch = evt.char or ''
 			if dbg_imm[ch] then
-				selected_line = nil
 				output(ch)
 				result,err = dbg_imm[ch]()
-			elseif dbg_cmdl[ch] then
 				selected_line = nil
-				local cmdl = ui.input(1, h, w, ch)
+			elseif dbg_cmdl[ch] then
+				local prefill = ch
+				if selected_line and use_selection[ch] then
+					prefill = use_selection[ch]()
+				end
+				local cmdl = ui.input(1, h, w, prefill)
 				if cmdl then
 					output(cmdl)
 					result, err = dbg_cmdl[ch](cmdl)
 				end
+				selected_line = nil
 			elseif ch == "q" then
 				selected_line = nil
 				quit = ui.ask("Really quit?") == 1
@@ -620,6 +664,14 @@ local main = coroutine.create(function()
 			end
 					
 			result, line, err = nil, nil, nil
+		else
+			local key = evt.key
+			if key == ui.key.ARROW_UP or key == ui.key.ARROW_DOWN or
+			   key == ui.key.ARROW_LEFT or key == ui.key.ARROW_RIGHT or
+			   key == ui.key.PGUP or key == ui.key.PGDN or
+			   key == ui.key.HOME or key == ui.key.END then
+				select_cmd = key
+			end
 		end
 	until quit
 end)
