@@ -1,5 +1,9 @@
+-- these are necessary because the mobdebug module recklessly calls
+-- print and os.exit(!)
 local _G_print = _G.print
 _G.print = function() end
+local _os_exit = os.exit
+os.exit = function() coroutine.yield() end
 local mdb = require "mobdebug"
 local socket = require "socket"
 local ui = require "ui"
@@ -14,8 +18,77 @@ local sources = {}
 local current_src = {}
 local current_file = ""
 local current_line = 0
+local selected_line
 local cmd_output = {}
 local pinned_evals = {}
+local display_pinned = true
+
+local function output(...)
+	cmd_output[#cmd_output+1] = table.concat({...}, " ")
+end
+
+local function output_error(...)
+	output("Error:", ...)
+end
+
+local function output_debug(...)
+	output("DBG:", ...)
+end
+
+-- opts: string of single char options, char followed by ':' means opt
+-- needs a value
+-- arg: table of arguments
+function get_opts(opts, arg)
+	local i = 1
+	local opt, val
+	local optt = {}
+	local res = {}
+	
+	while i <= #opts do
+		local ch = string.sub(opts, i, i)
+		if string.sub(opts, i+1, i+1) == ':' then
+			optt[ch] = true
+			i = i + 2
+		else
+			optt[ch] = false
+			i = i + 1
+		end
+	end
+	
+	i = 1
+	while arg[i] do
+		if string.sub(arg[i], 1, 1) == '-' then
+			opt = string.sub(arg[i], 2, 2)
+			if optt[opt] then
+				if #arg[i] > 2 then
+					val = string.sub(arg[i], 3)
+					i = i + 1
+				else
+					val = arg[i+1]
+					i = i + 2
+				end
+				if val == nil then
+					return nil, "option -"..opt.." needs an argument"
+				end
+			elseif optt[opt] == false then
+				if #arg[i] == 2 then
+					val = true
+					i = i + 1
+				else
+					return nil, "option -"..opt.." is a flag"
+				end
+			else
+				return nil, "unknown option -"..opt
+			end
+			res[opt] = val
+		else
+			res[#res+1] = arg[i]
+			i = i + 1
+		end
+	end
+	
+	return res
+end
 
 local function expand_tabs(txt, tw)
 	tw = tw or 4
@@ -37,9 +110,13 @@ end
 
 local function get_file(file)
 	if not sources[file] then
+		local fn = file
+		if string.sub(file, 1, 1) ~= '/' then
+			fn = basedir .. '/' .. file
+		end
 		local f = io.open(file, "r")
 		if not f then
-			return nil, "could not load source file "..f
+			return nil, "could not load source file "..file
 		end
 		local txt = f:read("*a")
 		f:close()
@@ -52,15 +129,13 @@ local function get_file(file)
 end
 
 local function set_current_file(file)
-	if not sources[file] then
-		local ok, err = get_file(file)
-		if not ok then
-			output_error(err)
-			return
-		end
+	local src, err = get_file(file)
+	if not src then
+		output_error(err)
+		return
 	end
 	current_file = file
-	current_src = sources[file]
+	current_src = src
 end
 
 local function displaysource_renderrow(r, s, x, y, w, extra)
@@ -101,7 +176,47 @@ function displaysource(source, x, y, w, h)
 	elseif first + h > #source.txt then
 		first = #source.txt - h + 2
 	end
-	ui.drawlist(source.txt, first, x, y, w, h-1, displaysource_renderrow, extra)
+	ui.drawlist(source.txt, first, x, y, w, h, displaysource_renderrow, extra)
+end
+
+
+function displaypinned_renderrow(r, s, x, y, w, extra)
+	local w1 = math.floor((w - 3) / 2)
+	local w2 = w - w1
+	if s then
+		ui.drawfield(x, y, string.format("%2d:", r), 3)
+		ui.drawfield(x + 3, y, s[1], w1 - 1)
+		ui.setcell(x + 3 + w1 - 1, y, '|')
+		ui.drawfield(x + 3 + w1, y, s[2], w2)
+	end
+end
+
+function displaypinned(pinned, x, y, w, h)
+	local extra
+	local t = {}
+	if h > 99 then h = 99 end
+	for i = 1, h do
+		local expr = pinned_evals[i]
+		if expr then
+			local res, _, err = mdb.handle("eval " .. expr, client)
+			if not err then
+				t[i] = { expr, tostring(res) }
+			else
+				t[i] = { expr, "Error: "..err }
+			end
+		end
+	end
+	for i = h+1, #pinned_evals do
+		pinned_evals[i] = nil
+	end
+	ui.drawlist(t, 1, x, y, w, h, displaypinned_renderrow, extra)
+end
+
+function displaycommands(cmds, x, y, w, h)
+	local nco = #cmds
+	local first = h > nco and 1 or nco - h + 1
+	local y = y + (nco >= h and 1 or h - nco + 1)
+	ui.drawtext(cmds, first, 1, y, w, h)
 end
 
 local function display()
@@ -109,23 +224,34 @@ local function display()
 	local th = h - 1
 	local srch = math.floor(th / 3 * 2)
 	local cmdh = th - srch
+	local srcw = math.floor(w * 3 / 4)
+	local pinw = w - srcw
+	srch = srch - 1
+
+	if (#pinned_evals == 0) or not display_pinned then
+		srcw = w
+		pinw = 0
+	end
 	
 	ui.clear(ui.color.WHITE, ui.color.BLACK)
 	ui.drawstatus({"Skript: "..(basefile or ""), "Dir: "..(basedir or ""), "press h for help"}, 1, ' | ')
 	
 	-- source view
 	ui.attributes(ui.color.WHITE, ui.color.BLACK)
-	displaysource(current_src, 1, 2, w, srch)
+	displaysource(current_src, 1, 2, srcw, srch)
 	ui.drawstatus({"File: "..current_file, "Line: "..current_line, ""}, srch + 1)
 	
 	-- variables view
-	
+	if pinw > 0 then
+		ui.attributes(ui.color.WHITE, ui.color.BLACK)
+		displaypinned(pinned_evals, srcw + 1, 2, pinw, srch)
+	end
+
 	-- commands view
 	ui.attributes(ui.color.WHITE, ui.color.BLACK)
-	local nco = #cmd_output
-	local first = cmdh > nco and 1 or nco - cmdh + 2
-	local y = srch + 1 + (nco >= cmdh and 1 or cmdh - nco)
-	ui.drawtext(cmd_output, first, 1, y, w, cmdh-1)
+	displaycommands(cmd_output, 1, srch + 1, w, cmdh)
+	
+	-- input line
 	ui.printat(1, h, string.rep(' ', w))
 	ui.setcursor(1,h)
 	
@@ -146,16 +272,8 @@ end
 local function find_current_basedir()
 	local pwd = unquote(mdb.handle("eval os.getenv('PWD')", client))
 	local arg0 = unquote(mdb.handle("eval arg[0]", client))
-	local a0d = string.match(arg0, "^(.*)/[^/]+$")
-	if a0d == "" then a0d = "/" end
 	if pwd and arg0 then
-		if string.sub(arg0, 1, 1) == "/" then
-			basedir = a0d
-		elseif string.find(arg0, '/', 1, true) then
-			basedir = pwd.."/"..a0d
-		else
-			basedir = pwd
-		end
+		basedir = pwd
 		basefile = string.match(arg0, "/([^/]+)$") or arg0
 	end
 end
@@ -194,13 +312,6 @@ local function startup()
 	return true
 end
 
-local function output(...)
-	cmd_output[#cmd_output+1] = table.concat({...}, " ")
-end
-
-local function output_error(...)
-	output("Error:", ...)
-end
 -- debugger commands
 
 local function dbg_help(cmdl)
@@ -221,9 +332,11 @@ local function dbg_help(cmdl)
 		"n             | step over next statement",
 		"s             | step into next statement",
 		"r             | run program",
-		"R             | reload program",
 		"c num         | continue for num steps",
-		"D dir         | set basedir",
+		"R             | reload program",
+		"B dir         | set basedir",
+		"P             | toggle pinned expressions display",
+		"S file        | show source file",
 		"h             | help",
 		"q             | quit"
 	}
@@ -243,10 +356,10 @@ local function dbg_stack()
 end
 
 local function update_where()
-	local s = dbg_stack()
-	current_line = s[1][4]
-	set_current_file(s[1][2])
-	output(current_file, ":", current_line)
+		local s = dbg_stack()
+		current_line = s[1][4]
+		set_current_file(s[1][2])
+		output(current_file, ":", current_line)
 end
 
 local function dbg_over(cmdl)
@@ -332,11 +445,15 @@ local function dbg_setb(cmdl)
 		end
 		if file == '-' then file = current_file end
 	end
+	if file then
+		res, err = get_file(file)
+		if not res then file = nil end
+	end
 	if file and line then
 		res, line, err = mdb.handle("setb " .. file .. " " .. line, client)
 		if not err then
 			res = "added breakpoint at " .. res .. " line " .. line
-			get_file(file).breakpts[line] = true
+			get_file(file).breakpts[tonumber(line)] = true
 		else
 			res = nil
 		end
@@ -347,7 +464,7 @@ local function dbg_setb(cmdl)
 end
 
 local function dbg_delb(cmdl)
-	local file, line = '-', string.match(cmdl, "^db%s*(%d+)%s*$")
+	local file, line = current_file, string.match(cmdl, "^db%s*(%d+)%s*$")
 	if not line then
 		local _, pos, ch = string.find(cmdl, "^db%s*(%S)")
 		if ch == '"' or ch == "'" then
@@ -361,7 +478,7 @@ local function dbg_delb(cmdl)
 		local r = "deleted breakpoint at "
 		r = r .. (res == '-' and current_file or res)
 		res = r .. " line " .. line
-		get_file(file).breakpts[line] = nil
+		get_file(file).breakpts[tonumber(line)] = nil
 	else
 		res = nil
 	end
@@ -379,7 +496,7 @@ local function dbg_del(cmdl)
 end
 
 local function dbg_set_basedir(cmdl)
-	local err = nil
+	local res, err
 	local _, pos, ch = string.find(cmdl, "^B%s*(%S)")
 	if ch == '"' or ch == "'" then
 		file = string.match(cmdl, "^(.+[^\\])%"..ch.."%s*$", pos+1)
@@ -388,10 +505,31 @@ local function dbg_set_basedir(cmdl)
 	end
 	if file then
 		basedir = file
+		res, _, err = mdb.handle("basedir " .. basedir, client)
+		if not err then res = "basedir is now "..basedir end
 	else
 		err = "command requires directory as argument"
 	end
-	return nil, err
+	return res, err
+end
+
+local function dbg_toggle_pinned(cmdl)
+	display_pinned = not display_pinned
+	return (display_pinned and "" or "don't ") .. "display pinned evals"
+end
+
+local function dbg_showfile(cmdl)
+	local file
+	local _, pos, ch = string.find(cmdl, "^S%s*(%S)")
+	if ch == '"' or ch == "'" then
+		file = string.match(cmdl, "^(.+[^\\])%"..ch.."%s*$", pos+1)
+	else
+		file = string.match(cmdl, "^S%s*(%S+)%s*$")
+	end
+	local src, err = get_file(file)
+	if not src then return nil, err end
+	current_file = file
+	current_src = src
 end
 
 local dbg_imm = {
@@ -400,6 +538,7 @@ local dbg_imm = {
 	['n'] = dbg_over,
 	['r'] = dbg_run,
 	['R'] = dbg_reload,
+	['P'] = dbg_toggle_pinned,
 }
 
 local dbg_cmdl = {
@@ -408,7 +547,8 @@ local dbg_cmdl = {
 	['d'] = dbg_del,
 	['='] = dbg_eval,
 	['!'] = dbg_pin_eval,
-	['D'] = dbg_set_basedir,
+	['B'] = dbg_set_basedir,
+	['S'] = dbg_showfile,
 }
 
 -- main
@@ -417,6 +557,16 @@ local main = coroutine.create(function()
 
 	ui.outputmode(ui.color.COL256)
 	local w, h = ui.size()
+
+	local opts, err = get_opts("p:h?", arg)
+	if not opts or opts.h or opts['?'] then
+		local ret = err and err .. "\n" or ""
+		return ret .. "usage: "..arg[0] .. " [-p port]"
+	end
+	if opts.p then
+		port = tonumber(opts.p)
+		if not port then error("argument to -p needs to be a port number") end
+	end
 
 	local ok, err = startup(port)
 	if not ok then error(err) end
@@ -432,17 +582,20 @@ local main = coroutine.create(function()
 		display()
 		evt = ui.pollevent()
 		if evt and evt.char then
-			ch = string.lower(evt.char or '')
+			ch = evt.char or ''
 			if dbg_imm[ch] then
+				selected_line = nil
 				output(ch)
 				result,err = dbg_imm[ch]()
 			elseif dbg_cmdl[ch] then
+				selected_line = nil
 				local cmdl = ui.input(1, h, w, ch)
 				if cmdl then
 					output(cmdl)
 					result, err = dbg_cmdl[ch](cmdl)
 				end
 			elseif ch == "q" then
+				selected_line = nil
 				quit = ui.ask("Really quit?") == 1
 			end
 			
@@ -455,18 +608,18 @@ local main = coroutine.create(function()
 			result, line, err = nil, nil, nil
 		end
 	until quit
-
-	client:close()
-	server:close()
-
 end)
 
 local ok, err = coroutine.resume(main)
-
 ui.shutdown()
-if not ok then
+client:close()
+
+if not ok and err then
 	_G_print("Error: "..tostring(err))
-	-- debugging only:
 	_G_print(debug.traceback(main))
+elseif err then
+	_G_print(err)
+else
+	_G_print("Bye.")
 end
-_G_print("Bye.")
+

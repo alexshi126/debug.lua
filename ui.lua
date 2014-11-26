@@ -217,6 +217,8 @@ local function drawlist(tbl, first, x, y, w, h, renderrow, rr_extra)
 	local sx, sy
 	local fo, bo, hl
 	local ntbl = #tbl
+	
+	if ntbl == 0 then return end
 
 	renderrow = renderrow or default_renderrow
 
