@@ -572,12 +572,10 @@ end
 
 ----- initialize -----
 
--- [[
 tfx.init()
 tfx.outputmode(tfx.output.NORMAL)
 tfx.inputmode(tfx.input.ESC)
 resetconfig()
---]]
 
 ----- return -----
 
@@ -603,4 +601,5 @@ return setmetatable({
 	configure = configure,
 	getconfig = getconfig,
 	outputmode = outputmode,
+	formatwidth = format,
 }, { __index = tfx })

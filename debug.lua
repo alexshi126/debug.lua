@@ -1,3 +1,12 @@
+#!/usr/bin/env lua
+--[[
+	debug.lua
+	
+	standalone frontend for mobdebug
+	Gunnar Zötl <gz@tset.de>, 2014
+	Released under MIT/X11 license. See file LICENSE for details.
+--]]
+
 -- these are necessary because the mobdebug module recklessly calls
 -- print and os.exit(!)
 local _G_print = _G.print
@@ -11,8 +20,8 @@ local ui = require "ui"
 local port = 8172 -- default
 
 local client
-local basedir = "."
-local basefile = ""
+local basedir
+local basefile
 
 local sources = {}
 local current_src = {}
@@ -117,8 +126,10 @@ local function get_file(file)
 		if string.sub(file, 1, 1) ~= '/' then
 			fn = basedir .. '/' .. file
 		end
-		local f = io.open(file, "r")
+	
+		local f = io.open(fn, "r")
 		if not f then
+			sources[file] = { txt = {}, lines = 0, breakpts = {}, selected = 0 }
 			return nil, "could not load source file "..file
 		end
 		local txt = f:read("*a")
@@ -135,10 +146,9 @@ local function set_current_file(file)
 	local src, err = get_file(file)
 	if not src then
 		output_error(err)
-		return
 	end
 	current_file = file
-	current_src = src
+	current_src = sources[file]
 end
 
 ---------- render display ----------------------------------------------
@@ -197,24 +207,24 @@ end
 
 function displaypinned(pinned, x, y, w, h)
 	local extra
-	local t = {}
 	if h > 99 then h = 99 end
-	while #pinned_evals > h do
-		table.remove(pinned_evals, 1)
+	while #pinned > h do
+		table.remove(pinned, 1)
 	end
 	for i = 1, h do
-		local expr = pinned_evals[i]
-		if expr then
+		local pe = pinned[i]
+		if pe then
+			local expr = pe[1]
 			local res, _, err = mdb.handle("eval " .. expr, client)
 			if not err then
-				t[i] = { expr, tostring(res) }
+				pe[2] = tostring(res)
 			else
-				t[i] = { expr, "Error: "..err }
+				pe[2] = "Error: "..err
 			end
 		end
 	end
 	ui.rect(x, y, w, h)
-	ui.drawlist(t, 1, x, y, w, h, displaypinned_renderrow, extra)
+	ui.drawlist(pinned, 1, x, y, w, h, displaypinned_renderrow, extra)
 end
 
 function displaycommands(cmds, x, y, w, h)
@@ -306,7 +316,7 @@ local function find_current_basedir()
 	local pwd = unquote(mdb.handle("eval os.getenv('PWD')", client))
 	local arg0 = unquote(mdb.handle("eval arg[0]", client))
 	if pwd and arg0 then
-		basedir = pwd
+		basedir = basedir or pwd
 		basefile = string.match(arg0, "/([^/]+)$") or arg0
 	end
 end
@@ -350,11 +360,7 @@ end
 local function dbg_help(cmdl)
 	local em = ui.color.WHITE + ui.format.BOLD
 	local t = {
-		"commands without arguments are executed immediately,",
-		"without the need to press Enter. Commands with",
-		"arguments will present you with a command line to",
-		"enter the whole command into. You can cancel this",
-		"and all popups using the ESC key.",
+		"For more details consult the README file.",
 		"",
 		"Commands:",
 		"=========",
@@ -366,9 +372,11 @@ local function dbg_help(cmdl)
 		"n             | step over next statement",
 		"s             | step into next statement",
 		"r             | run program",
+		"o             | continue until out of current function",
 		"c num         | continue for num steps",
 		"R             | restart debugging session",
 		"B dir         | set basedir",
+		"L dir         | set only local basedir",
 		"P             | toggle pinned expressions display",
 		"S file        | show source file",
 		"h             | help",
@@ -417,14 +425,15 @@ local function dbg_run(cmdl)
 	return nil, err
 end
 
-local function dbg_reload(cmdl)
-	local res, line, err = mdb.handle("reload", client)
+local function dbg_out(cmdl)
+	local res, line, err = mdb.handle("out", client)
 	update_where()
 	return nil, err
 end
 
 local function dbg_cont(cmdl)
 	local num = string.match(cmdl, "^c%s*(%d+)%s*$")
+	if num then num = tonumber(num) end
 	if not num then
 		return nil, "command requires one numeric argument"
 	end
@@ -437,13 +446,19 @@ local function dbg_cont(cmdl)
 	return res, err
 end
 
+local function dbg_reload(cmdl)
+	local res, line, err = mdb.handle("reload", client)
+	update_where()
+	return nil, err
+end
+
 local function dbg_eval(cmdl)
 	local expr = string.match(cmdl, "^=%s*(.+)%s*$")
 	if not expr then
 		return nil, "command requires an expression as argument"
 	end
 	local res, line, err = mdb.handle("eval " .. expr, client)
-	if not err and res == nil then res = "nil" end
+	if not err then res = tostring(res) end
 	return res, err
 end
 
@@ -452,15 +467,15 @@ local function dbg_pin_eval(cmdl)
 	if not expr then
 		return nil, "command requires an expression as argument"
 	end
-	table.insert(pinned_evals, expr)
 	local res, line, err = mdb.handle("eval " .. expr, client)
-	if not err and res == nil then res = "nil" end
+	if not err then res = tostring(res) end
+	table.insert(pinned_evals, { expr, res })
 	return res, err
 end
 
 local function dbg_delpin(cmdl)
 	local pin = string.match(cmdl, "^d!%s*(%d*)%s*$")
-	if not pin then
+	if not pin or pin ~= "" and not tonumber(pin) then
 		return nil, "command requires none or one numeric argument"
 	end
 	if pin ~= '' then
@@ -493,6 +508,7 @@ local function dbg_setb(cmdl)
 		res, err = get_file(file)
 		if not res then file = nil end
 	end
+	if line then line = tonumber(line) end
 	if file and line then
 		res, line, err = mdb.handle("setb " .. file .. " " .. line, client)
 		if not err then
@@ -539,22 +555,31 @@ local function dbg_del(cmdl)
 	return nil, "unknown del function: "..ch
 end
 
-local function dbg_set_basedir(cmdl)
+local function dbg_local_basedir(cmdl)
 	local res, err
-	local _, pos, ch = string.find(cmdl, "^B%s*(%S)")
+	local _, pos, ch = string.find(cmdl, "^[LB]%s*(%S)")
 	if ch == '"' or ch == "'" then
 		file = string.match(cmdl, "^(.+[^\\])%"..ch.."%s*$", pos+1)
 	else
-		file = string.match(cmdl, "^B%s*(%S+)%s*$")
+		file = string.match(cmdl, "^[LB]%s*(%S+)%s*$")
 	end
 	if file then
 		basedir = file
-		res, _, err = mdb.handle("basedir " .. basedir, client)
-		if not err then res = "basedir is now "..basedir end
+		res = "local basedir is now "..basedir
 	else
 		err = "command requires directory as argument"
 	end
 	return res, err
+end
+
+local function dbg_basedir(cmdl)
+	local res, err = dbg_local_basedir(cmdl)
+	if not err then
+		res, _, err = mdb.handle("basedir " .. basedir, client)
+		if not err then
+			res = "basedir is now " .. basedir
+		end
+	end
 end
 
 local function dbg_toggle_pinned(cmdl)
@@ -585,6 +610,7 @@ local dbg_imm = {
 	['s'] = dbg_step,
 	['n'] = dbg_over,
 	['r'] = dbg_run,
+	['o'] = dbg_out,
 	['R'] = dbg_reload,
 	['P'] = dbg_toggle_pinned,
 	['.'] = dbg_return,
@@ -596,7 +622,8 @@ local dbg_cmdl = {
 	['d'] = dbg_del,
 	['='] = dbg_eval,
 	['!'] = dbg_pin_eval,
-	['B'] = dbg_set_basedir,
+	['B'] = dbg_basedir,
+	['L'] = dbg_local_basedir,
 	['S'] = dbg_showfile,
 }
 
@@ -612,14 +639,17 @@ local main = coroutine.create(function()
 	ui.outputmode(ui.color.COL256)
 	local w, h = ui.size()
 
-	local opts, err = get_opts("p:h?", arg)
+	local opts, err = get_opts("p:d:h?", arg)
 	if not opts or opts.h or opts['?'] then
 		local ret = err and err .. "\n" or ""
-		return ret .. "usage: "..arg[0] .. " [-p port]"
+		return ret .. "usage: "..arg[0] .. " [-p port] [-d dir]"
 	end
 	if opts.p then
 		port = tonumber(opts.p)
 		if not port then error("argument to -p needs to be a port number") end
+	end
+	if opts.d then
+		basedir = opts.d
 	end
 
 	local ok, err = startup(port)
@@ -648,11 +678,19 @@ local main = coroutine.create(function()
 				end
 				local cmdl = ui.input(1, h, w, prefill)
 				if cmdl then
-					output(cmdl)
-					result, err = dbg_cmdl[ch](cmdl)
+					ch = string.sub(cmdl, 1, 1)
+					if dbg_cmdl[ch] then
+						output(cmdl)
+						result, err = dbg_cmdl[ch](cmdl)
+						selected_line = nil
+					elseif dbg_imm[cmdl] then
+						output(cmdl)
+						result, err = dbg_imm[cmdl]()
+						selected_line = nil
+					end
 				end
-				selected_line = nil
-			elseif ch == "q" then
+			end
+			if ch == "q" then
 				selected_line = nil
 				quit = ui.ask("Really quit?") == 1
 			end

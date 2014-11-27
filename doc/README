@@ -1,0 +1,155 @@
+# README #
+
+## debug.lua ##
+
+Author: Gunnar Zötl , 2014.  
+Released under MIT/X11 license. See file LICENSE for details.
+
+## Introduction ##
+
+debug.lua is a terminal based standalone frontend for mobdebug. Because
+it is terminal based, it is navigated only with the keyboard, but I
+tried to make it somewhat comfortable to use.
+
+## Installing ##
+
+TODO
+
+## Using ##
+
+you start debug.lua by typing
+
+	debug.lua
+
+into your shell. You should then see the startup screen, which informs
+you on which port debug.lua is waiting for connections from a mobdebug
+client. Normally this is 8172.
+
+Then start the skript to be debugged. As debug.lua used mobdebug, the
+debuggee needs to be prepared as described in the mobdebug docs, either
+by adding
+
+	require("mobdebug").start()
+
+at the beginning, or by starting it with
+
+	lua -e "require('mobdebug').start()" debuggee.lua
+
+debug.lua will then enter the debugging display. At the top of the
+screen there is a status line telling you which skript you're debugging
+and where the base directory for that skript is. Below that is a source
+browser in the top two thirds of the screen, plus a command display in
+the bottom third. The source browser has it's own status line at it's
+bottom, with the current file name and line number, and on the right the
+number of currently pinned expressions. The pinned expressions display
+is closed when there are no pinned expressions, but you can also close
+and reopen it if there are, using the `P` command.
+
+### Command Line Arguments ###
+
+`-h, -?`
+:	get help on invocation
+
+`-p port`
+:	change port number
+
+`-d dir`
+:	set local basedir
+
+### The Source Window ###
+
+### The Pinned Expressions Display ###
+
+### The Command Display ###
+
+### Debugger Commands ###
+
+Debugger commands come in 2 varieties, thise without arguments and those
+with. Commands without arguments are executed immediately, without the
+need to press enter. Commands with arguments present a command line, in
+which you can type the arguments (like the line number for a breakpoint),
+and are executed as soon as you press return. If you accidentially
+activated the command line input, you can escape from it using the Escape
+key.
+
+`b [file] line`
+:	set breakpoint. If you selected a line in the source file using the
+	cursor keys, and that line is breakable, then the command line will
+	be prepopulated with `b` plus this line number.
+
+`db [file] line`
+:	delete breakpoint. If you selected a line in the source file using
+	the cursor keys, and that line has a breakpoint, and you press the
+	`d`, then the command line will be prepopulated with `db` plus this
+	line number.
+
+`= expr`
+:	evaluate an expression in the current context.
+
+`! expr`
+:	evaluate and pin an expression. Pinned expressions are evaluated
+	whenever the debugger stops (after `s`, `n`, `r` or `c` commmands),
+	if the pinned expressions display is showing.
+
+`d! [num]`
+:	delete one (with argument) or all (without argument) pinned
+	expressions
+
+`n`
+:	step over next statement. This does not step into function calls.
+
+`s`
+:	step into next statement. This steps into function calls.
+
+`r`
+:	run or continue program.
+
+`o`
+:	continue the program until the next line after the call to the
+	current function.
+
+`c num`
+:	step (like using the `s` command) through the next num lines. This
+	does not stop at breakpoints!
+
+`R`
+:	restart debugging session. This does not work for me, but it seems
+	to be a problem with mobdebug...
+
+`B dir`
+:	set basedir.
+
+`L dir`
+:	set only local basedir. Normally the local basedir is obtained from
+	the debuggee, but if that runs on a remote machine, you need to set
+	the local basedir to point to a local copy of the debuggee using this.
+
+`P`
+:	toggle pinned expressions display. Note that the pinned expressions
+	display can only be shown if there are pinned expressions.
+
+`S file`
+:	show a source file, loading it if not already loaded.
+
+`h`
+:	show a quick help on these commands.
+
+`q`
+:	quit debug.lua
+
+up/down/page up/page down
+:	navigate source file
+
+left/right    
+:	select current line
+
+.             
+:	reset view: cancel any line selection and return to the current
+	debugging position.
+
+### Debugging Coroutines ###
+
+
+## References ##
+
+mobdebug.lua
