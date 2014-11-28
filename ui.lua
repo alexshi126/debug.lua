@@ -341,8 +341,6 @@ local function text(tbl, title)
 	until quit
 end
 
------ ask -----
-
 -- api widget
 -- ask the user something, providing a table of buttons for answers.
 -- Default is { "Yes", "No" }
@@ -399,33 +397,7 @@ local function ask(msg, btns, title)
 	return nil
 end
 
------ message -----
-
--- api widget
--- shows a message.
-local function message(msg, title)
-	tfx.attributes(config.fg, config.bg)
-
-	local tw = tfx.width()
-	local ma = format(msg, tw / 2)
-	local mw = 0
-	for i = 1, #ma do
-		if #ma[i] > mw then mw = #ma[i] end
-	end
-	local x, y, w, h = frame(mw, #ma+1, title)
-	drawlist(ma, 1, x, y, w, h)
-	
-	tfx.attributes(config.sel_fg, config.sel_bg)
-	tfx.printat(x + (w / 2 - 1), y + #ma, "OK", 2)
-	
-	tfx.present()
-	repeat
-		local evt = tfx.pollevent()
-	until is_escape_key(evt)
-end
-
------ input -----
-
+-- api
 -- input a single value
 local function drawvalue(t, f, x, y, w)
 	local m = #t
@@ -488,41 +460,6 @@ local function input(x, y, w, orig)
 	return table.concat(res), evt.key
 end
 
--- api widget
--- select an item from a list. Returns the number of the selected item.
-
-local function select_renderrow(row, s, x, y, w, extra)
-	if row == extra.selected then
-		tfx.attributes(config.sel_fg, config.sel_bg)
-	end
-	drawfield(x, y, s, w)
-end
-
-local function select(tbl, title)
-	tfx.attributes(config.fg, config.bg)
-error "incomplete"
-	local w = 0
-	for i=1, #tbl do
-		if #tbl[i] > w then w = #tbl[i] end
-	end
-	
-	local x, y, w, h = frame(w, #tbl, title)
-	local extra = { selected = 1 }
-	
-	local pos = 1
-	repeat
-		drawlist(tbl, 1, x, y, w, h, select_renderrow, extra)
-		tfx.present()
-	
-		local evt = tfx.pollevent()
-		-- ...
-	until is_escape_key(evt)
-	
-	return tbl[pos], pos
-end
-
------ drawstatus -----
-
 -- api
 -- draw a status bar. The last element in tbl is always right aligned,
 -- the rest is left aligned.
@@ -549,8 +486,6 @@ local function drawstatus(tbl, y, w, sep)
 	tfx.printat(w + 1 - #tbl[#tbl], y, tbl[#tbl])
 end
 
------ configure -----
-
 -- api
 -- change config options for the ui lib. see resetconfig() above for options
 local function configure(tbl)
@@ -567,8 +502,6 @@ local function configure(tbl)
 	end
 end
 
------ outputmode -----
-
 -- api
 -- overwrite tfx outputmode function: do the same but also reset all
 -- colors to default. This is because with the change of the output mode,
@@ -581,12 +514,11 @@ end
 
 ----- initialize -----
 
--- [[
 tfx.init()
 tfx.outputmode(tfx.output.NORMAL)
 tfx.inputmode(tfx.input.ESC)
 resetconfig()
---]]
+
 ----- return -----
 
 return setmetatable({
@@ -603,12 +535,10 @@ return setmetatable({
 
 	-- widgets
 	text = text,
-	message = message,
 	ask = ask,
-	select = select,
 
 	-- misc
-	configure = configure,
+--	configure = configure,
 	getconfig = getconfig,
 	outputmode = outputmode,
 	formatwidth = format,

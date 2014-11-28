@@ -23,8 +23,6 @@ setmetatable(_G, {
 } )
 --]]
 
-local ui = require "ui"
-
 local port = 8172 -- default
 
 local client
@@ -44,6 +42,11 @@ local display_pinned = true
 -- compat
 local log10 = math.log10 or function(n) return math.log(n, 10) end
 local unpack = unpack or table.unpack
+
+---------- modules -----------------------------------------------------
+
+local lua_loader = require "loader"
+local ui = require "ui"
 
 ---------- misc helpers ------------------------------------------------
 
@@ -118,24 +121,6 @@ local function get_opts(opts, arg)
 	return res
 end
 
-local function expand_tabs(txt, tw)
-	tw = tw or 4
-	local tbl = {}
-	local pos = 1
-	local w = 0
-	local s, e = string.find(txt, "^[^\t]*\t", 1)
-	while s do
-		tbl[#tbl+1] = string.sub(txt, s, e-1)
-		w = w + e - s
-		tbl[#tbl+1] = string.rep(' ', tw - w % tw)
-		w = w + tw - w % tw
-		pos = e + 1
-		s, e = string.find(txt, "^[^\t]*\t", e + 1)
-	end
-	tbl[#tbl+1] = string.sub(txt, pos)
-	return table.concat(tbl)
-end
-
 local function get_file(file)
 	if not sources[file] then
 		local fn = file
@@ -143,17 +128,11 @@ local function get_file(file)
 			fn = basedir .. '/' .. file
 		end
 	
-		local f = io.open(fn, "r")
-		if not f then
-			sources[file] = { txt = {}, lines = 0, breakpts = {}, selected = 0 }
-			return nil, "could not load source file "..file
+		local src, err = lua_loader(fn)
+		if not src then
+			return nil, err
 		end
-		local txt = f:read("*a")
-		f:close()
-		txt = expand_tabs(txt, 4)
-		local tt = {}
-		string.gsub(txt, "([^\r\n]*)\r?\n", function(s) table.insert(tt, s) end)
-		sources[file] = { txt = tt, lines = #tt, breakpts = {}, selected = 0 }
+		sources[file] = src
 	end
 	return sources[file]
 end
@@ -162,9 +141,10 @@ local function set_current_file(file)
 	local src, err = get_file(file)
 	if not src then
 		output_error(err)
+		src = lua_loader()
 	end
 	current_file = file
-	current_src = sources[file]
+	current_src = src
 end
 
 ---------- render display ----------------------------------------------
@@ -229,16 +209,16 @@ local function displaypinned(pinned, x, y, w, h)
 	while #pinned > h do
 		table.remove(pinned, 1)
 	end
-	for i = 1, h do
-		local pe = pinned[i]
-		if pe then
-			local expr = pe[1]
-			local res, _, err = mdb.handle("eval " .. expr, client)
-			if not err then
-				pe[2] = tostring(res)
-			else
-				pe[2] = "Error: "..err
-			end
+	local cmd = "do local t = {};"
+	for i=1, #pinned do
+		cmd = cmd .. "t[" .. i .. "]="..pinned[i][1]..";"
+	end
+	cmd = cmd .. "return t;end"
+	local res, _, err = mdb.handle("exec "..cmd, client)
+	if res then
+		local rt = loadstring("return "..res)()
+		for i=1, #pinned do
+			pinned[i][2] = rt[i]
 		end
 	end
 	ui.rect(x, y, w, h)
@@ -268,6 +248,12 @@ local function display()
 	
 	ui.clear(ui.color.WHITE, ui.color.BLACK)
 	ui.drawstatus({"Skript: "..(basefile or ""), "Dir: "..(basedir or ""), "press h for help"}, 1, ' | ')
+
+	-- variables view
+	if pinw > 0 then
+		ui.attributes(ui.color.WHITE, ui.color.BLUE)
+		displaypinned(pinned_evals, srcw + 1, 2, pinw, srch-1)
+	end
 
 	-- source view
 	if select_cmd then
@@ -300,12 +286,6 @@ local function display()
 	displaysource(current_src, 1, 2, srcw, srch-1)
 	ui.drawstatus({"File: "..current_file, "Line: "..current_line.."/"..current_src.lines, #pinned_evals > 0 and "pinned: " .. #pinned_evals or ""}, srch + 1)
 	
-	-- variables view
-	if pinw > 0 then
-		ui.attributes(ui.color.WHITE, ui.color.BLUE)
-		displaypinned(pinned_evals, srcw + 1, 2, pinw, srch-1)
-	end
-
 	-- commands view
 	ui.attributes(ui.color.WHITE, ui.color.BLACK)
 	displaycommands(cmd_output, 1, srch + 1, w, cmdh)
@@ -515,6 +495,9 @@ local function dbg_setb(file, line)
 		end
 	else
 		file = current_file
+	end
+	if not get_file(file).canbrk[line] then
+		return nil, "can't set breakpoint in file '"..file.."' line "..line
 	end
 	if file and line then
 		res, _, err = mdb.handle("setb " .. file .. " " .. line, client)
@@ -904,7 +887,7 @@ local ok, err = coroutine.resume(main)
 if err == _os_exit then
 	local w, h = ui.size()
 	ui.attributes(ui.color.RED + ui.format.BOLD, ui.color.BLACK)
-	ui.drawfield(1, h, "Program terminated, press any key.", w)
+	ui.drawfield(1, h, "Debugged program terminated, press any key.", w)
 	ui.hidecursor()
 	ui.present()
 	ui.waitkeypress()

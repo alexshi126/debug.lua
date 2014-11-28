@@ -72,7 +72,7 @@ and reopen it if there are, using the `P` command.
 
 ### Debugger Commands ###
 
-Debugger commands come in 2 varieties, thise without arguments and those
+Debugger commands come in 2 varieties, those without arguments and those
 with. Commands without arguments are executed immediately, without the
 need to press enter. Commands with arguments present a command line, in
 which you can type the arguments (like the line number for a breakpoint),
