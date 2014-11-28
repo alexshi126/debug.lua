@@ -15,13 +15,20 @@ local _os_exit = os.exit
 os.exit = function() coroutine.yield(_os_exit) end
 local mdb = require "mobdebug"
 local socket = require "socket"
+
+--[[  debug only
+setmetatable(_G, {
+	__newindex = function(t, n, v) error("attempt to set global variable "..n) end,
+	__index =  function(t, n) error("attempt to read global variable "..n) end 
+} )
+--]]
+
 local ui = require "ui"
 
 local port = 8172 -- default
 
 local client
-local basedir
-local basefile
+local basedir, basefile
 
 local sources = {}
 local current_src = {}
@@ -30,6 +37,7 @@ local current_line = 0
 local selected_line
 local select_cmd
 local cmd_output = {}
+local cmd_outlog
 local pinned_evals = {}
 local display_pinned = true
 
@@ -40,7 +48,11 @@ local unpack = unpack or table.unpack
 ---------- misc helpers ------------------------------------------------
 
 local function output(...)
-	cmd_output[#cmd_output+1] = table.concat({...}, " ")
+	local line = table.concat({...}, " ")
+	cmd_output[#cmd_output+1] = line
+	if cmd_outlog then
+		cmd_outlog:write(line, "\n")
+	end
 end
 
 local function output_error(...)
@@ -54,7 +66,7 @@ end
 -- opts: string of single char options, char followed by ':' means opt
 -- needs a value
 -- arg: table of arguments
-function get_opts(opts, arg)
+local function get_opts(opts, arg)
 	local i = 1
 	local opt, val
 	local optt = {}
@@ -183,7 +195,7 @@ local function displaysource_renderrow(r, s, x, y, w, extra)
 	return ui.drawfield(x + linew + 3, y, tostring(s), w - linew - 3)
 end
 
-function displaysource(source, x, y, w, h)
+local function displaysource(source, x, y, w, h)
 	local extra = {
 		isbrk = source.breakpts,
 		cur = current_line,
@@ -200,7 +212,7 @@ function displaysource(source, x, y, w, h)
 	ui.drawlist(source.txt, first, x, y, w, h, displaysource_renderrow, extra)
 end
 
-function displaypinned_renderrow(r, s, x, y, w, extra)
+local function displaypinned_renderrow(r, s, x, y, w, extra)
 	local w1 = math.floor((w - 3) / 2)
 	local w2 = w - w1
 	if s then
@@ -211,7 +223,7 @@ function displaypinned_renderrow(r, s, x, y, w, extra)
 	end
 end
 
-function displaypinned(pinned, x, y, w, h)
+local function displaypinned(pinned, x, y, w, h)
 	local extra
 	if h > 99 then h = 99 end
 	while #pinned > h do
@@ -233,7 +245,7 @@ function displaypinned(pinned, x, y, w, h)
 	ui.drawlist(pinned, 1, x, y, w, h, displaypinned_renderrow, extra)
 end
 
-function displaycommands(cmds, x, y, w, h)
+local function displaycommands(cmds, x, y, w, h)
 	local nco = #cmds
 	local first = h > nco and 1 or nco - h + 1
 	local y = y + (nco >= h and 1 or h - nco + 1)
@@ -343,6 +355,8 @@ local function startup()
 		return nil, "could not open server socket."
 	end
 	server:settimeout(0.3)
+	
+	local evt
 	repeat
 		ui.printat(bx, y+3, string.rep(' ', bw), bw)
 		ui.setcell(bx + bp - 1, y+3, '=')
@@ -353,9 +367,12 @@ local function startup()
 		ui.present()
 		client = server:accept()
 		evt = ui.pollevent(0)
-		if evt and (evt.key == ui.key.ESC or evt.char == 'q' or evt.char == 'Q') then return nil end
+		if evt and (evt.key == ui.key.ESC or evt.char == 'q' or evt.char == 'Q') then
+			server:close()
+			return nil
+		end
 	until client ~= nil
-	server:settimeout()
+	server:close()
 
 	find_current_basedir()
 	return true
@@ -368,13 +385,11 @@ local dbg_args = {}
 local function dbg_help()
 	local em = ui.color.WHITE + ui.format.BOLD
 	local t = {
-		"Commands:",
-		"=========",
 		"n             | step over next statement",
 		"s             | step into next statement",
 		"r             | run program",
 		"o             | continue until out of current function",
-		"c num         | continue for num steps",
+		"t [num]       | trace execution",
 		"b [file] line | set breakpoint",
 		"db [[file] ln]| delete one or all breakpoints",
 		"= expr        | evaluate expression",
@@ -385,14 +400,14 @@ local function dbg_help()
 		"L dir         | set only local basedir",
 		"P             | toggle pinned expressions display",
 		"G [file] num  | goto line in file or current file",
-		"W[b|p]        | write setup.",
+		"W[b|!] file   | write setup.",
 		"h             | help",
 		"q             | quit",
 		"[page] up/down| navigate source file",
 		"left/right    | select current line",
 		".             | reset view",
 	}
-	ui.text(t, "Help")
+	ui.text(t, "Commands")
 end
 
 local function dbg_stack()
@@ -439,15 +454,19 @@ local function dbg_out()
 	return nil, err
 end
 
-local function dbg_cont(num)
-	for i=1, num-1 do
-		dbg_step()
+local function dbg_trace(num)
+	if num and num < 1 then return nil end
+	local res, err
+	local steps = 1
+	while not num or steps <= num do
+		res, err = dbg_step()
+		display()
+		if current_src.breakpts[current_line] then return end
+		steps = steps + 1
 	end
-	local res, err = dbg_step()
-	update_where()
 	return res, err
 end
-dbg_args[dbg_cont] = 'n'
+dbg_args[dbg_trace] = 'N'
 
 local function dbg_reload()
 	local res, line, err = mdb.handle("reload", client)
@@ -465,7 +484,7 @@ dbg_args[dbg_eval] = '*'
 
 local function dbg_pin_eval(...)
 	local expr = table.concat({...}, ' ')
-	table.insert(pinned_evals, { expr, res })
+	table.insert(pinned_evals, { expr, nil })
 	return "added pinned expression '"..expr.."'"
 end
 dbg_args[dbg_pin_eval] = '*'
@@ -488,14 +507,17 @@ local function dbg_delpin(_, pin)
 end
 
 local function dbg_setb(file, line)
+	local res, _, err
 	if file then
 		res, err = get_file(file)
-		if not res then file = nil end
+		if not res then
+			return nil, err
+		end
 	else
 		file = current_file
 	end
 	if file and line then
-		res, line, err = mdb.handle("setb " .. file .. " " .. line, client)
+		res, _, err = mdb.handle("setb " .. file .. " " .. line, client)
 		if not err then
 			res = "added breakpoint at " .. res .. " line " .. line
 			get_file(file).breakpts[tonumber(line)] = true
@@ -510,8 +532,15 @@ end
 dbg_args[dbg_setb] = "Sn"
 
 local function dbg_delb(file, line)
-	file = file or current_file
 	local res, _, err
+	if file then
+		res, err = get_file(file)
+		if not res then
+			return nil, err
+		end
+	else
+		file = current_file
+	end
 	if line then
 		res, _, err = mdb.handle("delb " .. file .. " " .. line, client)
 		if not err then
@@ -551,7 +580,7 @@ end
 dbg_args[dbg_local_basedir] = "s"
 
 local function dbg_basedir(dir)
-	local res, err = dbg_local_basedir(dir)
+	local res, err, _ = dbg_local_basedir(dir)
 	if not err then
 		res, _, err = mdb.handle("basedir " .. basedir, client)
 		if not err then
@@ -584,6 +613,11 @@ end
 local function dbg_writesetup(what, file)
 	local breaks, pins = true, true
 	local res = {}
+	if what == 'b' then
+		pins = false
+	elseif what == '!' then
+		breaks = false
+	end
 	if breaks then
 		for n, s in pairs(sources) do
 			for i, _ in pairs(s.breakpts) do
@@ -631,7 +665,7 @@ local dbg_imm = {
 }
 
 local dbg_cmdl = {
-	['c'] = dbg_cont,
+	['t'] = dbg_trace,
 	['b'] = dbg_setb,
 	['d'] = dbg_del,
 	['='] = dbg_eval,
@@ -781,10 +815,10 @@ local main = coroutine.create(function()
 	ui.outputmode(ui.color.COL256)
 	local w, h = ui.size()
 
-	local opts, err = get_opts("p:d:x:h?", arg)
+	local opts, err = get_opts("p:d:x:l:h?", arg)
 	if not opts or opts.h or opts['?'] then
 		local ret = err and err .. "\n" or ""
-		return ret .. "usage: "..arg[0] .. " [-p port] [-d dir] [-x file]"
+		return ret .. "usage: "..arg[0] .. " [-p port] [-d dir] [-x file] [-l file]"
 	end
 	if opts.p then
 		port = tonumber(opts.p)
@@ -792,6 +826,12 @@ local main = coroutine.create(function()
 	end
 	if opts.d then
 		basedir = opts.d
+	end
+	if opts.l then
+		cmd_outlog = io.open(opts.l, "w")
+		if not cmd_outlog then
+			output_error("can't write output log '..opts.l..'")
+		end
 	end
 
 	local ok, err = startup(port)
@@ -813,6 +853,7 @@ local main = coroutine.create(function()
 
 	update_where()
 
+	local evt
 	repeat
 		w, h = ui.size()
 		display()

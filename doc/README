@@ -31,6 +31,9 @@ TODO
 `-x file`
 :	execute debugger commands in file
 
+`-l file`
+:	save output log to file
+
 ## Using ##
 
 you start debug.lua by typing
@@ -86,15 +89,15 @@ key.
 :	step into next statement. This steps into function calls.
 
 `r`
-:	run or continue program.
+:	run or continue program to the next breakpoint or until finished.
 
 `o`
-:	continue the program until the next line after the call to the
-	current function.
+:	continue the program to the next breakpoint or until the next line
+	after the call to the currently executing function.
 
-`c num`
-:	step (like using the `s` command) through the next num lines. This
-	does not stop at breakpoints!
+`t [num]`
+:	trace execution until the to breakpoint or until finished. If num
+	is given, then traces for num steps only.
 
 `b [file] line`
 :	set breakpoint. If you selected a line in the source file using the
@@ -127,9 +130,7 @@ key.
 :	restart debugging session. This does not work for me, but it seems
 	to be a problem with mobdebug...
 
-
 #### Source Navigation and other Commands ####
-
 
 `B dir`
 :	set basedir.

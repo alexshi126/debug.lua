@@ -104,8 +104,8 @@ local function frame(w, h, title)
 	local tw, th = tfx.size()
 	if w + 2 > tw then w = tw - 2 end
 	if h + 2 > th then h = th - 2 end
-	local x = math.floor((tw - w) / 2)
-	local y = math.floor((th - h) / 2)
+	local x = math.floor((tw - w) / 2) + 1
+	local y = math.floor((th - h) / 2) + 1
 	return drawframe(x, y, w, h, title)
 end
 
@@ -304,7 +304,7 @@ end
 local function text(tbl, title)
 	local first = 1
 	local th = #tbl
-	local w, h = 0, h
+	local w, h = 0, th
 	local x, y
 	local quit = false
 	local evt
@@ -316,7 +316,7 @@ local function text(tbl, title)
 	
 	tfx.attributes(config.fg, config.bg)
 	x, y, w, h = frame(w, th, title)
-	if #tbl > h then
+	if th > h then
 		x, y, w, h = frame(w+1, th, title)
 	end
 	
@@ -367,7 +367,7 @@ local function ask(msg, btns, title)
 	local x, y, w, h = frame(mw, #ma+1, title)
 	drawlist(ma, 1, x, y, w, h)	
 
-
+	local evt
 	repeat
 		local bp = math.floor(w - bw) / 2
 		if bp < 1 then bp = 1 end
@@ -581,11 +581,12 @@ end
 
 ----- initialize -----
 
+-- [[
 tfx.init()
 tfx.outputmode(tfx.output.NORMAL)
 tfx.inputmode(tfx.input.ESC)
 resetconfig()
-
+--]]
 ----- return -----
 
 return setmetatable({
