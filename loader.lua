@@ -288,7 +288,7 @@ local function lualoader(file)
 	
 	if file then
 		local f = io.open(file, "r")
-		if not f then
+		if not f then 
 			return nil, "could not load source file "..file
 		end
 		local src = f:read("*a")
@@ -301,8 +301,10 @@ local function lualoader(file)
 			end
 		end
 
-		src = expand_tabs(src, 4)
 		string.gsub(src, "([^\r\n]*)\r?\n", function(s) table.insert(srct, s) end)
+		for i = 1, #srct do
+			srct[i] = expand_tabs(srct[i])
+		end
 	end
 	
 	return { txt = srct, lines = #srct, canbrk = canbrk, breakpts = {}, selected = 0 }
