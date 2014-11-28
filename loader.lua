@@ -169,7 +169,7 @@ end
 
 local function lex_op(str, pos)
 	local s, e = find(str, "^[/<>=~.]+", pos)
-	if not s then s, e = find(str, "^[+%-*^%&~|#]", pos) end
+	if not s then s, e = find(str, "^[+%%-*^%&~|#]", pos) end
 	if not s then return nil end
 	local op = string.sub(str, s, e)
 	if binop[op] or unop[op] then

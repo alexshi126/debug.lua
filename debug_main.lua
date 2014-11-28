@@ -867,7 +867,13 @@ local main = coroutine.create(function()
 			if err then
 				output_error(err)
 			elseif result then
-				output("->", result)
+				local resa = ui.formatwidth(result, w - 4)
+				output("->", resa[1])
+				if #resa > 1 then
+					for i = 2, #resa do
+						output("  ", resa[i])
+					end
+				end
 			end
 					
 			result, err = nil, nil

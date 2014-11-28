@@ -12,6 +12,10 @@ it is terminal based, it is navigated only with the keyboard, but it
 does feature source navigation and a display for expressions that change
 as you step through the source.
 
+I wrote it because while there are plenty of integrations of mobdebug
+with lua IDEs, there is no standalone frontend (that I know of), and
+using mobdebug without one is somewhat painful.
+
 ## Installing ##
 
 debug.lua depends on termfx, mobdebug and by extension luasocket. You
@@ -227,6 +231,19 @@ adding
 at the start, or by starting it with
 
 	lua -e "require('mobdebug').start() require('mobdebug').coro()" debuggee.lua
+
+### Weirdnesses ###
+
+You may notice that breakpoints are hit at strange times. That is because
+of how lua generates line hook calls. For example, the breakpoint that is
+placed on the line where a function definition starts, is not triggered
+when that function is invoked, but when it is defined. You need to place
+your breakpoint on the first line inside a function for it to be
+triggered when that function is invoked. Additionally, there are a few
+small differences between how a program is executed in different versions
+of the interpreter. Also, after executing the last statement in a skript,
+the variable display is not updated any more. That is because after that,
+the debuggee terminates and the information is not available any more.
 
 ## References ##
 

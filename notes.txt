@@ -36,5 +36,6 @@ todo:
 
 	- properly parse source files to create a list of breakable lines
 	- color tokens on source window?
-	- fix lualoader not checking the entire file for breakable lines...
 	- check lua 5.1, mac os X
+	- accept function names for breakpoints, and find the proper line for that.
+	- configurable colors?
