@@ -8,31 +8,21 @@ Released under MIT/X11 license. See file LICENSE for details.
 ## Introduction ##
 
 debug.lua is a terminal based standalone frontend for mobdebug. Because
-it is terminal based, it is navigated only with the keyboard, but I
-tried to make it somewhat comfortable to use.
+it is terminal based, it is navigated only with the keyboard, but it
+does feature source navigation and a display for expressions that change
+as you step through the source.
 
 ## Installing ##
 
-depends on termfx, mobdebug and luasocket
+debug.lua depends on termfx, mobdebug and by extension luasocket. You
+can install it using luarocks, which will automatically pull in the
+dependencies:
 
-TODO
+	luarocks install debug.lua
 
-### Command Line Arguments ###
-
-`-h, -?`
-:	get help on invocation
-
-`-p port`
-:	change port number
-
-`-d dir`
-:	set local basedir
-
-`-x file`
-:	execute debugger commands in file
-
-`-l file`
-:	save output log to file
+Alternatively, if you only downloaded the tarball, you can just copy
+debug.lua whereever you like (eg. /usr/local/bin), and as long as it can
+find it's dependencies, it will run.
 
 ## Using ##
 
@@ -44,7 +34,7 @@ into your shell. You should then see the startup screen, which informs
 you on which port debug.lua is waiting for connections from a mobdebug
 client. Normally this is 8172.
 
-Then start the skript to be debugged. As debug.lua used mobdebug, the
+Then start the skript to be debugged. As debug.lua uses mobdebug, the
 debuggee needs to be prepared as described in the mobdebug docs, either
 by adding
 
@@ -64,11 +54,67 @@ number of currently pinned expressions. The pinned expressions display
 is closed when there are no pinned expressions, but you can also close
 and reopen it if there are, using the `P` command.
 
+### Command Line Arguments ###
+
+`-h, -?`
+:	get help on invocation
+
+`-p port`
+:	change port number
+
+`-d dir`
+:	set local basedir
+
+`-x file`
+:	execute debugger commands in file
+
+`-l file`
+:	save output log to file
+
 ### The Source Display ###
+
+The top (or, if the pinned expressions display is visible, the top left)
+part of the display is the source display. Here you can see the source
+code of the program currently beind debugged, and can also navigate
+through it using the cursor keys or page up/down. The line that is the
+next to be executed is marked with a blue arrow (->), and lines that
+have breakpoints attached to them have a red star.
+
+Navigating through the source windows creates a selection. This is only
+one line, but if you set a breakpoint, the selected line will
+automatically be inserted into the breakpoint setting command for you.
+The same is true for deleting breakpoints.
+
+Under the source display there is a small status bar that shows you the
+source file currently visible and the current line. Also, if you have
+any pinned expressions, the number of those is shown on the right side
+of this status bar.
 
 ### The Pinned Expressions Display ###
 
+You can evaluate expressions using the `=` command, and you can pin
+expressions using the `!` command. Pinned expressions are shown in the
+pinned expressions display, which is only available when there are any
+pinned expressions.
+
+Pinned expressions are updated whenever the debugger stops, that is,
+either after `n`, `s`, `t`, `r` or `o` commands and when a breakpoint is
+hit.
+
+There are only as many pinned expressions available as there is space
+for them on the terminal. If you have for example terminal size of 80x25
+chars, there is space for 14 pinned expressions. If you add more, the
+oldest ones will be removed.
+
+You can toggle the pinned expressions display using the `P` command. Just
+turning it off does not remove the pinned expressions.
+
 ### The Command Display ###
+
+The command display takes up the lower third of your screen. Here the
+commands you entered and their results are being displayed. Also, if you
+specified the `-l` option when launching debug.lua, the contents will be
+written to the file specified with `-l`.
 
 ### Debugger Commands ###
 
@@ -96,7 +142,7 @@ key.
 	after the call to the currently executing function.
 
 `t [num]`
-:	trace execution until the to breakpoint or until finished. If num
+:	trace execution to the next breakpoint or until finished. If num
 	is given, then traces for num steps only.
 
 `b [file] line`
@@ -172,6 +218,15 @@ left/right
 
 ### Debugging Coroutines ###
 
+As mentioned before, debug.lua uses mobdebug. So, in order to debug
+coroutines, you will have to prepare the debuggee for this, either by
+adding
+
+	require('mobdebug').coro()
+
+at the start, or by starting it with
+
+	lua -e "require('mobdebug').start() require('mobdebug').coro()" debuggee.lua
 
 ## References ##
 
