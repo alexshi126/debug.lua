@@ -13,7 +13,20 @@ tried to make it somewhat comfortable to use.
 
 ## Installing ##
 
+depends on termfx, mobdebug and luasocket
+
 TODO
+
+### Command Line Arguments ###
+
+`-h, -?`
+:	get help on invocation
+
+`-p port`
+:	change port number
+
+`-d dir`
+:	set local basedir
 
 ## Using ##
 
@@ -45,17 +58,6 @@ number of currently pinned expressions. The pinned expressions display
 is closed when there are no pinned expressions, but you can also close
 and reopen it if there are, using the `P` command.
 
-### Command Line Arguments ###
-
-`-h, -?`
-:	get help on invocation
-
-`-p port`
-:	change port number
-
-`-d dir`
-:	set local basedir
-
 ### The Source Window ###
 
 ### The Pinned Expressions Display ###
@@ -72,16 +74,22 @@ and are executed as soon as you press return. If you accidentially
 activated the command line input, you can escape from it using the Escape
 key.
 
+#### Debugging Commands ####
+
 `b [file] line`
 :	set breakpoint. If you selected a line in the source file using the
 	cursor keys, and that line is breakable, then the command line will
-	be prepopulated with `b` plus this line number.
+	be prepopulated with `b` plus this line number, otherwise it will
+	you need to enter the arguments. If file is omitted, uses the file
+	currently on the source window.
 
-`db [file] line`
+`db [[file] line]`
 :	delete breakpoint. If you selected a line in the source file using
 	the cursor keys, and that line has a breakpoint, and you press the
 	`d`, then the command line will be prepopulated with `db` plus this
-	line number.
+	line number, otherwise it will you need to enter the arguments. If
+	file is omitted, uses the file currently on the source window. If
+	used without arguments, this deleted all breakpoints.
 
 `= expr`
 :	evaluate an expression in the current context.
@@ -92,8 +100,8 @@ key.
 	if the pinned expressions display is showing.
 
 `d! [num]`
-:	delete one (with argument) or all (without argument) pinned
-	expressions
+:	delete pinned expression num, or if called without argument, delete
+	all pinned expressions.
 
 `n`
 :	step over next statement. This does not step into function calls.
@@ -116,6 +124,10 @@ key.
 :	restart debugging session. This does not work for me, but it seems
 	to be a problem with mobdebug...
 
+
+#### Source Navigation and other Commands ####
+
+
 `B dir`
 :	set basedir.
 
@@ -124,18 +136,11 @@ key.
 	the debuggee, but if that runs on a remote machine, you need to set
 	the local basedir to point to a local copy of the debuggee using this.
 
-`P`
-:	toggle pinned expressions display. Note that the pinned expressions
-	display can only be shown if there are pinned expressions.
-
 `S file`
 :	show a source file, loading it if not already loaded.
 
-`h`
-:	show a quick help on these commands.
-
-`q`
-:	quit debug.lua
+`G num`
+:	go to and select line number num.
 
 up/down/page up/page down
 :	navigate source file
@@ -146,10 +151,23 @@ left/right
 .             
 :	reset view: cancel any line selection and return to the current
 	debugging position.
+`P`
+:	toggle pinned expressions display. Note that the pinned expressions
+	display can only be shown if there are pinned expressions.
+
+`W[b|p]`
+:	write setup. Lists either all breakpoints (`Wb`), all pinned
+	expressions (`Wp`) or both (`W`).
+
+`h`
+:	show a quick help on these commands.
+
+`q`
+:	quit debug.lua
 
 ### Debugging Coroutines ###
 
 
 ## References ##
 
-mobdebug.lua
+Check the mobdebug documentation at https://github.com/pkulchenko/MobDebug

@@ -365,7 +365,7 @@ local function dbg_help(cmdl)
 		"Commands:",
 		"=========",
 		"b [file] line | set breakpoint",
-		"db [file] line| delete breakpoint",
+		"db [[file] ln]| delete one or all breakpoints",
 		"= expr        | evaluate expression",
 		"! expr        | evaluate and pin expression",
 		"d! [num]      | delete one or all pinned expressions",
@@ -379,6 +379,8 @@ local function dbg_help(cmdl)
 		"L dir         | set only local basedir",
 		"P             | toggle pinned expressions display",
 		"S file        | show source file",
+		"G num         | goto line num",
+		"W[b|p]        | write setup.",
 		"h             | help",
 		"q             | quit",
 		"[page] up/down| navigate source file",
@@ -405,6 +407,7 @@ local function update_where()
 		current_line = s[1][4]
 		set_current_file(s[1][2])
 		output(current_file, ":", current_line)
+		selected_line = nil
 end
 
 local function dbg_over(cmdl)
@@ -524,7 +527,7 @@ local function dbg_setb(cmdl)
 end
 
 local function dbg_delb(cmdl)
-	local file, line = current_file, string.match(cmdl, "^db%s*(%d+)%s*$")
+	local file, line = current_file, string.match(cmdl, "^db%s*(%d*)%s*$")
 	if not line then
 		local _, pos, ch = string.find(cmdl, "^db%s*(%S)")
 		if ch == '"' or ch == "'" then
@@ -533,14 +536,27 @@ local function dbg_delb(cmdl)
 			file, line = string.match(cmdl, "^db%s*(%S+)%s+(%d+)%s*$")
 		end
 	end
-	local res, line, err = mdb.handle("delb " .. file .. " " .. line, client)
-	if not err then
-		local r = "deleted breakpoint at "
-		r = r .. (res == '-' and current_file or res)
-		res = r .. " line " .. line
-		get_file(file).breakpts[tonumber(line)] = nil
+	local res, _, err
+	if line ~= "" then
+		res, _, err = mdb.handle("delb " .. file .. " " .. line, client)
+		if not err then
+			local r = "deleted breakpoint at "
+			r = r .. (res == '-' and current_file or res)
+			res = r .. " line " .. line
+			get_file(file).breakpts[tonumber(line)] = nil
+		else
+			res = nil
+		end
 	else
-		res = nil
+		res, _, err = mdb.handle("delallb", client)
+		if not err then
+			for _, s in pairs(sources) do
+				s.breakpts = {}
+			end
+			res = "deleted all breakpoints"
+		else
+			res = nil
+		end
 	end
 	return res, err
 end
@@ -582,6 +598,18 @@ local function dbg_basedir(cmdl)
 	end
 end
 
+local function dbg_gotoline(cmdl)
+	local line = string.match(cmdl, "^G%s*(%d+)%s*$")
+	if line then line = tonumber(line) end
+	if not line then
+		return nil, "command requires line number as argument"
+	end
+	if line < 1 or line > #current_src.txt then
+		return nil, "line number out of range"
+	end
+	selected_line = line
+end
+
 local function dbg_toggle_pinned(cmdl)
 	display_pinned = not display_pinned
 	return (display_pinned and "" or "don't ") .. "display pinned evals"
@@ -599,6 +627,31 @@ local function dbg_showfile(cmdl)
 	if not src then return nil, err end
 	current_file = file
 	current_src = src
+end
+
+local function dbg_writesetup(cmdl)
+	local breaks, pins = true, true
+	local what = string.match(cmdl, "^W([bp]?)%S*$")
+	if not what then
+		return nil, "invalid write directive"
+	end
+	
+	local res = {}
+	if breaks then
+		for n, s in pairs(sources) do
+			for i, _ in pairs(s.breakpts) do
+				res[#res+1] = string.format('b %q %d', n, i)
+			end
+		end
+	end
+	if pins then
+		for _, pin in ipairs(pinned_evals) do
+			res[#res+1] = string.format("! %s", pin[1])
+		end
+	end
+	
+	-- temp.
+	ui.text(res)
 end
 
 local function dbg_return(cmdl)
@@ -625,6 +678,8 @@ local dbg_cmdl = {
 	['B'] = dbg_basedir,
 	['L'] = dbg_local_basedir,
 	['S'] = dbg_showfile,
+	['G'] = dbg_gotoline,
+	['W'] = dbg_writesetup,
 }
 
 local use_selection = {
@@ -670,7 +725,6 @@ local main = coroutine.create(function()
 			if dbg_imm[ch] then
 				output(ch)
 				result,err = dbg_imm[ch]()
-				selected_line = nil
 			elseif dbg_cmdl[ch] then
 				local prefill = ch
 				if selected_line and use_selection[ch] then
@@ -682,11 +736,9 @@ local main = coroutine.create(function()
 					if dbg_cmdl[ch] then
 						output(cmdl)
 						result, err = dbg_cmdl[ch](cmdl)
-						selected_line = nil
 					elseif dbg_imm[cmdl] then
 						output(cmdl)
 						result, err = dbg_imm[cmdl]()
-						selected_line = nil
 					end
 				end
 			end
@@ -716,7 +768,7 @@ end)
 
 local ok, err = coroutine.resume(main)
 ui.shutdown()
-client:close()
+if client then client:close() end
 
 if not ok and err then
 	_G_print("Error: "..tostring(err))
