@@ -158,9 +158,9 @@ left/right
 :	toggle pinned expressions display. Note that the pinned expressions
 	display can only be shown if there are pinned expressions.
 
-`W[b|p] [file]`
+`W[b|!] [file]`
 :	write setup. Lists the commands for either all breakpoints (`Wb`),
-	all pinned expressions (`Wp`) or both (`W`). If file is given, writes
+	all pinned expressions (`W!`) or both (`W`). If file is given, writes
 	the commands to the file (which can then be loaded at startup with
 	the `-x`command line option), else writes it to the command display.
 
