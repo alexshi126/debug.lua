@@ -182,6 +182,15 @@ local function is_escape_key(evt, onlyesc)
 end
 
 -- helper
+-- waits for an event that is a keypress, then returns.
+local function waitkeypress()
+	local evt
+	repeat
+		evt = tfx.pollevent()
+	until evt and evt.type == 'key'
+end
+
+-- helper
 -- draw a simple string s at pos x, y, width w, filling the rest between
 -- #s and w with f or blanks
 -- returns true
@@ -602,4 +611,5 @@ return setmetatable({
 	getconfig = getconfig,
 	outputmode = outputmode,
 	formatwidth = format,
+	waitkeypress = waitkeypress,
 }, { __index = tfx })

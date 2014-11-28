@@ -12,7 +12,7 @@
 local _G_print = _G.print
 _G.print = function() end
 local _os_exit = os.exit
-os.exit = function() coroutine.yield() end
+os.exit = function() coroutine.yield(_os_exit) end
 local mdb = require "mobdebug"
 local socket = require "socket"
 local ui = require "ui"
@@ -32,6 +32,10 @@ local select_cmd
 local cmd_output = {}
 local pinned_evals = {}
 local display_pinned = true
+
+-- compat
+local log10 = math.log10 or function(n) return math.log(n, 10) end
+local unpack = unpack or table.unpack
 
 ---------- misc helpers ------------------------------------------------
 
@@ -154,6 +158,8 @@ end
 ---------- render display ----------------------------------------------
 
 local function displaysource_renderrow(r, s, x, y, w, extra)
+	if s == nil then return end
+
 	local isbrk = extra.isbrk
 	local linew = extra.linew
 
@@ -182,7 +188,7 @@ function displaysource(source, x, y, w, h)
 		isbrk = source.breakpts,
 		cur = current_line,
 		sel = selected_line,
-		linew = math.ceil(math.log10 and math.log10(source.lines) or math.log(source.lines, 10))
+		linew = math.ceil(log10(source.lines))
 	}
 	local first = (selected_line and selected_line or current_line) - math.floor(h/2)
 
@@ -357,29 +363,28 @@ end
 
 ---------- debugger commands -------------------------------------------
 
-local function dbg_help(cmdl)
+local dbg_args = {}
+
+local function dbg_help()
 	local em = ui.color.WHITE + ui.format.BOLD
 	local t = {
-		"For more details consult the README file.",
-		"",
 		"Commands:",
 		"=========",
-		"b [file] line | set breakpoint",
-		"db [[file] ln]| delete one or all breakpoints",
-		"= expr        | evaluate expression",
-		"! expr        | evaluate and pin expression",
-		"d! [num]      | delete one or all pinned expressions",
 		"n             | step over next statement",
 		"s             | step into next statement",
 		"r             | run program",
 		"o             | continue until out of current function",
 		"c num         | continue for num steps",
+		"b [file] line | set breakpoint",
+		"db [[file] ln]| delete one or all breakpoints",
+		"= expr        | evaluate expression",
+		"! expr        | pin expression",
+		"d! [num]      | delete one or all pinned expressions",
 		"R             | restart debugging session",
 		"B dir         | set basedir",
 		"L dir         | set only local basedir",
 		"P             | toggle pinned expressions display",
-		"S file        | show source file",
-		"G num         | goto line num",
+		"G [file] num  | goto line in file or current file",
 		"W[b|p]        | write setup.",
 		"h             | help",
 		"q             | quit",
@@ -410,37 +415,31 @@ local function update_where()
 		selected_line = nil
 end
 
-local function dbg_over(cmdl)
+local function dbg_over()
 	local res, line, err = mdb.handle("over", client)
 	update_where()
 	return nil, err
 end
 
-local function dbg_step(cmdl)
+local function dbg_step()
 	local res, line, err = mdb.handle("step", client)
 	update_where()
 	return nil, err
 end
 
-local function dbg_run(cmdl)
+local function dbg_run()
 	local res, line, err = mdb.handle("run", client)
 	update_where()
 	return nil, err
 end
 
-local function dbg_out(cmdl)
+local function dbg_out()
 	local res, line, err = mdb.handle("out", client)
 	update_where()
 	return nil, err
 end
 
-local function dbg_cont(cmdl)
-	local num = string.match(cmdl, "^c%s*(%d+)%s*$")
-	if num then num = tonumber(num) end
-	if not num then
-		return nil, "command requires one numeric argument"
-	end
-
+local function dbg_cont(num)
 	for i=1, num-1 do
 		dbg_step()
 	end
@@ -448,41 +447,34 @@ local function dbg_cont(cmdl)
 	update_where()
 	return res, err
 end
+dbg_args[dbg_cont] = 'n'
 
-local function dbg_reload(cmdl)
+local function dbg_reload()
 	local res, line, err = mdb.handle("reload", client)
 	update_where()
 	return nil, err
 end
 
-local function dbg_eval(cmdl)
-	local expr = string.match(cmdl, "^=%s*(.+)%s*$")
-	if not expr then
-		return nil, "command requires an expression as argument"
-	end
+local function dbg_eval(...)
+	local expr = table.concat({...}, ' ')
 	local res, line, err = mdb.handle("eval " .. expr, client)
 	if not err then res = tostring(res) end
 	return res, err
 end
+dbg_args[dbg_eval] = '*'
 
-local function dbg_pin_eval(cmdl)
-	local expr = string.match(cmdl, "^!%s*(.+)%s*$")
-	if not expr then
-		return nil, "command requires an expression as argument"
-	end
-	local res, line, err = mdb.handle("eval " .. expr, client)
-	if not err then res = tostring(res) end
+local function dbg_pin_eval(...)
+	local expr = table.concat({...}, ' ')
 	table.insert(pinned_evals, { expr, res })
-	return res, err
+	return "added pinned expression '"..expr.."'"
 end
+dbg_args[dbg_pin_eval] = '*'
 
-local function dbg_delpin(cmdl)
-	local pin = string.match(cmdl, "^d!%s*(%d*)%s*$")
-	if not pin or pin ~= "" and not tonumber(pin) then
-		return nil, "command requires none or one numeric argument"
+local function dbg_delpin(_, pin)
+	if _ then
+		return nil, "invalid argument #1: number expected"
 	end
-	if pin ~= '' then
-		pin = tonumber(pin)
+	if pin then
 		if pin >= 1 and pin <= #pinned_evals then
 			table.remove(pinned_evals, pin)
 			return "deleted pinned expession #" .. tostring(pin)
@@ -495,23 +487,13 @@ local function dbg_delpin(cmdl)
 	end
 end
 
-local function dbg_setb(cmdl)
-	local file, line = current_file, string.match(cmdl, "^b%s*(%d+)%s*$")
-	local res, err
-	if not line then
-		local _, pos, ch = string.find(cmdl, "^b%s*(%S)")
-		if ch == '"' or ch == "'" then
-			file, line = string.match(cmdl, "^(.+[^\\])%"..ch.."%s+(%d+)%s*$", pos+1)
-		else
-			file, line = string.match(cmdl, "^b%s*(%S+)%s+(%d+)%s*$")
-		end
-		if file == '-' then file = current_file end
-	end
+local function dbg_setb(file, line)
 	if file then
 		res, err = get_file(file)
 		if not res then file = nil end
+	else
+		file = current_file
 	end
-	if line then line = tonumber(line) end
 	if file and line then
 		res, line, err = mdb.handle("setb " .. file .. " " .. line, client)
 		if not err then
@@ -525,24 +507,15 @@ local function dbg_setb(cmdl)
 	end
 	return res, err
 end
+dbg_args[dbg_setb] = "Sn"
 
-local function dbg_delb(cmdl)
-	local file, line = current_file, string.match(cmdl, "^db%s*(%d*)%s*$")
-	if not line then
-		local _, pos, ch = string.find(cmdl, "^db%s*(%S)")
-		if ch == '"' or ch == "'" then
-			file, line = string.match(cmdl, "^(.+[^\\])%"..ch.."%s+(%d+)%s*$", pos+1)
-		else
-			file, line = string.match(cmdl, "^db%s*(%S+)%s+(%d+)%s*$")
-		end
-	end
+local function dbg_delb(file, line)
+	file = file or current_file
 	local res, _, err
-	if line ~= "" then
+	if line then
 		res, _, err = mdb.handle("delb " .. file .. " " .. line, client)
 		if not err then
-			local r = "deleted breakpoint at "
-			r = r .. (res == '-' and current_file or res)
-			res = r .. " line " .. line
+			res = "deleted breakpoint at " .. res .. " line " .. line
 			get_file(file).breakpts[tonumber(line)] = nil
 		else
 			res = nil
@@ -561,81 +534,55 @@ local function dbg_delb(cmdl)
 	return res, err
 end
 
-local function dbg_del(cmdl)
-	local ch = string.sub(cmdl, 2, 2)
+local function dbg_del(ch, file, line)
 	if ch == "b" then
-		return dbg_delb(cmdl)
+		return dbg_delb(file, line)
 	elseif ch == "!" then
-		return dbg_delpin(cmdl)
+		return dbg_delpin(file, line)
 	end
 	return nil, "unknown del function: "..ch
 end
+dbg_args[dbg_del] = "cSN"
 
-local function dbg_local_basedir(cmdl)
-	local res, err
-	local _, pos, ch = string.find(cmdl, "^[LB]%s*(%S)")
-	if ch == '"' or ch == "'" then
-		file = string.match(cmdl, "^(.+[^\\])%"..ch.."%s*$", pos+1)
-	else
-		file = string.match(cmdl, "^[LB]%s*(%S+)%s*$")
-	end
-	if file then
-		basedir = file
-		res = "local basedir is now "..basedir
-	else
-		err = "command requires directory as argument"
-	end
-	return res, err
+local function dbg_local_basedir(dir)
+	basedir = dir
+	return "local basedir is now "..basedir
 end
+dbg_args[dbg_local_basedir] = "s"
 
-local function dbg_basedir(cmdl)
-	local res, err = dbg_local_basedir(cmdl)
+local function dbg_basedir(dir)
+	local res, err = dbg_local_basedir(dir)
 	if not err then
 		res, _, err = mdb.handle("basedir " .. basedir, client)
 		if not err then
 			res = "basedir is now " .. basedir
 		end
 	end
+	return res, err
 end
+dbg_args[dbg_basedir] = "s"
 
-local function dbg_gotoline(cmdl)
-	local line = string.match(cmdl, "^G%s*(%d+)%s*$")
-	if line then line = tonumber(line) end
-	if not line then
-		return nil, "command requires line number as argument"
+local function dbg_gotoline(file, line)
+	if file then
+		local src, err = get_file(file)
+		if not src then return nil, err end
+		current_file = file
+		current_src = src
 	end
 	if line < 1 or line > #current_src.txt then
 		return nil, "line number out of range"
 	end
 	selected_line = line
 end
+dbg_args[dbg_gotoline] = "Sn"
 
-local function dbg_toggle_pinned(cmdl)
+local function dbg_toggle_pinned()
 	display_pinned = not display_pinned
 	return (display_pinned and "" or "don't ") .. "display pinned evals"
 end
 
-local function dbg_showfile(cmdl)
-	local file
-	local _, pos, ch = string.find(cmdl, "^S%s*(%S)")
-	if ch == '"' or ch == "'" then
-		file = string.match(cmdl, "^(.+[^\\])%"..ch.."%s*$", pos+1)
-	else
-		file = string.match(cmdl, "^S%s*(%S+)%s*$")
-	end
-	local src, err = get_file(file)
-	if not src then return nil, err end
-	current_file = file
-	current_src = src
-end
-
-local function dbg_writesetup(cmdl)
+local function dbg_writesetup(what, file)
 	local breaks, pins = true, true
-	local what = string.match(cmdl, "^W([bp]?)%S*$")
-	if not what then
-		return nil, "invalid write directive"
-	end
-	
 	local res = {}
 	if breaks then
 		for n, s in pairs(sources) do
@@ -650,12 +597,26 @@ local function dbg_writesetup(cmdl)
 		end
 	end
 	
-	-- temp.
-	ui.text(res)
+	if file then
+		local f = io.open(file, "w")
+		if not f then
+			return nil, "could not open file '"..file.."' for writing"
+		end
+		for _, l in ipairs(res) do
+			f:write(l, "\n")
+		end
+		f:close()
+		return "wrote setup to file '"..file.."'"
+	else
+		for _, l in ipairs(res) do
+			output(l)
+		end
+	end
 end
+dbg_args[dbg_writesetup] = "CS"
 
-local function dbg_return(cmdl)
-	-- does nothing, the main loop does everything.
+local function dbg_return()
+	update_where()
 end
 
 local dbg_imm = {
@@ -677,7 +638,6 @@ local dbg_cmdl = {
 	['!'] = dbg_pin_eval,
 	['B'] = dbg_basedir,
 	['L'] = dbg_local_basedir,
-	['S'] = dbg_showfile,
 	['G'] = dbg_gotoline,
 	['W'] = dbg_writesetup,
 }
@@ -687,6 +647,133 @@ local use_selection = {
 	['d'] = function() if current_src.breakpts[selected_line] then return "db " .. tostring(selected_line) else return "d" end end,
 }
 
+local function dbg_verify_args(argspec, args)
+	local function invarg(n, t)
+		return nil, "invalid argument #"..n..": " ..t.." expected"
+	end
+
+	if not argspec or (argspec == '*' and #args > 0) then
+		return args
+	end
+	local varg = {}
+	local nargs = 0
+	local k = 1
+	for i=1, #argspec do
+		local v = args[k]
+		local t = type(v)
+		local spec = string.sub(argspec, i, i)
+		local lspec = string.lower(spec)
+		if lspec == 'n' then
+			if t == "number" then
+				varg[i] = v
+				k = k + 1
+			elseif spec == 'N' then
+				varg[i] = nil
+			else
+				return invarg(k, "number")
+			end
+			nargs = nargs + 1
+		elseif lspec == 'c' then
+			if t == "string" and #v == 1 then
+				varg[i] = v
+				k = k + 1
+			elseif spec == 'C' then
+				varg[i] = nil
+			else
+				return invarg(k, "char")
+			end
+			nargs = nargs + 1
+		elseif lspec == 's' then
+			if t == "string" then
+				varg[i] = v
+				k = k + 1
+			elseif spec == 'S' then
+				varg[i] = nil
+			else
+				return invarg(k, "string")
+			end
+			nargs = nargs + 1
+		elseif spec == '*' then
+			if i ~= #argspec then
+				return nil, "(invalid argspec for function: '"..tostring(argspec).."')"
+			end
+			for l = k, #args do
+				varg[i - k + l] = args[l]
+				nargs = nargs + 1
+			end
+		else
+			return nil, "(invalid argspec for function: '"..tostring(argspec).."')"
+		end
+	end
+	return varg, nargs
+end
+
+local function dbg_exec(cmdl)
+	local cmd = string.sub(cmdl, 1, 1)
+	if cmd == '' then return nil end
+	local args = {}
+	local s, e = string.find(cmdl, "^%s*(%S)", 2)
+	while s do
+		local ch = string.sub(cmdl, e, e)
+		if ch == '"' or ch == "'" then
+			local p1 = e + 1
+			s, e = string.find(cmdl, "[^\\]"..ch, p1)
+			if s then
+				args[#args+1] = string.sub(cmdl, p1, e-1)
+			else
+				return nil, "unfinished string argument"
+			end
+		else
+			s, e = string.find(cmdl, "%S+", s)
+			local a = string.sub(cmdl, s, e)
+			local n = tonumber(a)
+			if n then
+				args[#args+1] = n
+			else
+				args[#args+1] = a
+			end
+		end
+		s, e = string.find(cmdl, "^%s+(%S)", e+1)
+	end
+	
+	if dbg_imm[cmd] then
+		if #args == 0 then
+			return dbg_imm[cmd]()
+		else
+			return nil, "too many arguments for command "..cmd
+		end
+	elseif dbg_cmdl[cmd] then
+		local fn = dbg_cmdl[cmd]
+		local argspec = dbg_args[fn]
+		local vargs, n = dbg_verify_args(argspec, args)
+		if vargs then
+			return fn(unpack(vargs, 1, n))
+		else
+			return nil, n
+		end
+	end
+	
+	return nil, "unknown command "..cmd
+end
+
+local function dbg_execfile(file)
+	local f = io.open(file, "r")
+	if not f then
+		return nil, "could not open file '"..file.."' for input."
+	end
+	for l in f:lines() do
+		local res, err = dbg_exec(l)
+		if res then
+			output(res)
+		elseif err then
+			f:close()
+			return nil, err
+		end
+	end
+	f:close()
+	return "execution of commands in file '"..file.."' finished"
+end
+
 ---------- main --------------------------------------------------------
 
 local main = coroutine.create(function()
@@ -694,10 +781,10 @@ local main = coroutine.create(function()
 	ui.outputmode(ui.color.COL256)
 	local w, h = ui.size()
 
-	local opts, err = get_opts("p:d:h?", arg)
+	local opts, err = get_opts("p:d:x:h?", arg)
 	if not opts or opts.h or opts['?'] then
 		local ret = err and err .. "\n" or ""
-		return ret .. "usage: "..arg[0] .. " [-p port] [-d dir]"
+		return ret .. "usage: "..arg[0] .. " [-p port] [-d dir] [-x file]"
 	end
 	if opts.p then
 		port = tonumber(opts.p)
@@ -713,6 +800,16 @@ local main = coroutine.create(function()
 	local quit = false
 	local result, err
 	local first = 1
+	local cmdl
+
+	if opts.x then
+		local res, err = dbg_execfile(opts.x)
+		if res then
+			output(res)
+		else
+			output_error(err)
+		end
+	end
 
 	update_where()
 
@@ -722,27 +819,23 @@ local main = coroutine.create(function()
 		evt = ui.pollevent()
 		if evt and evt.char ~= "" then
 			local ch = evt.char or ''
+			cmdl = nil
 			if dbg_imm[ch] then
-				output(ch)
-				result,err = dbg_imm[ch]()
+				cmdl = ch
 			elseif dbg_cmdl[ch] then
 				local prefill = ch
 				if selected_line and use_selection[ch] then
 					prefill = use_selection[ch]()
 				end
-				local cmdl = ui.input(1, h, w, prefill)
-				if cmdl then
-					ch = string.sub(cmdl, 1, 1)
-					if dbg_cmdl[ch] then
-						output(cmdl)
-						result, err = dbg_cmdl[ch](cmdl)
-					elseif dbg_imm[cmdl] then
-						output(cmdl)
-						result, err = dbg_imm[cmdl]()
-					end
-				end
+				ui.setcell(1, h, ">")
+				cmdl = ui.input(2, h, w, prefill)
+				if cmdl == "" then cmdl = nil end
 			end
-			if ch == "q" then
+			
+			if cmdl then
+				output(cmdl)
+				result, err = dbg_exec(cmdl)
+			elseif ch == "q" then
 				selected_line = nil
 				quit = ui.ask("Really quit?") == 1
 			end
@@ -753,7 +846,7 @@ local main = coroutine.create(function()
 				output("->", result)
 			end
 					
-			result, line, err = nil, nil, nil
+			result, err = nil, nil
 		else
 			local key = evt.key
 			if key == ui.key.ARROW_UP or key == ui.key.ARROW_DOWN or
@@ -767,6 +860,14 @@ local main = coroutine.create(function()
 end)
 
 local ok, err = coroutine.resume(main)
+if err == _os_exit then
+	local w, h = ui.size()
+	ui.attributes(ui.color.RED + ui.format.BOLD, ui.color.BLACK)
+	ui.drawfield(1, h, "Program terminated, press any key.", w)
+	ui.hidecursor()
+	ui.present()
+	ui.waitkeypress()
+end
 ui.shutdown()
 if client then client:close() end
 
