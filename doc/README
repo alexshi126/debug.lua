@@ -130,6 +130,12 @@ and are executed as soon as you press return. If you accidentially
 activated the command line input, you can escape from it using the Escape
 key.
 
+Arguments are delimited by spaces, and can be numbers or strings. String
+arguments can be enclosed by quotes, if they need to contain spaces. In
+the rare event that you actually want to have a quoted string as an
+argument (probably to `=`), you can prefix the opening quote with a
+backtick (\`).
+
 #### Debugging Commands ####
 
 `n`

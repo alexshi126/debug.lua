@@ -828,13 +828,17 @@ local function dbg_exec(cmdl)
 	if cmd == '' then return nil end
 	local args = {}
 	local s, e = string.find(cmdl, "^%s*(%S)", 2)
+	local quote = false
 	while s do
 		local ch = string.sub(cmdl, e, e)
-		if ch == '"' or ch == "'" then
+		if ch == "`" then
+			quote = true
+		elseif ch == '"' or ch == "'" then
 			local p1 = e + 1
 			s, e = string.find(cmdl, "[^\\]"..ch, p1)
 			if s then
-				args[#args+1] = string.sub(cmdl, p1, e-1)
+				args[#args+1] = quote and string.sub(cmdl, p1-1, e) or string.sub(cmdl, p1, e-1)
+				quote = false
 			else
 				return nil, "unfinished string argument"
 			end
@@ -848,9 +852,9 @@ local function dbg_exec(cmdl)
 				args[#args+1] = a
 			end
 		end
-		s, e = string.find(cmdl, "^%s+(%S)", e+1)
+		s, e = string.find(cmdl, "^%s"..(quote and '*' or '+').."(%S)", e+1)
 	end
-	
+
 	if dbg_imm[cmd] then
 		if #args == 0 then
 			return dbg_imm[cmd]()

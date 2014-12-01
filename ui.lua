@@ -117,7 +117,7 @@ local function format(msg, w)
 	local last = #msg
 	local pos, posn = 1, 0
 	local ss, se = string.find(msg, "%s+", pos)
-	local ps, pe, pc = string.find(msg, "%s*([^%a%c%d\\\"'])", pos)
+	local ps, pe, pc = string.find(msg, "%s*([%.,:;])", pos)
 	local words = {}
 	while ss or ps do
 		ps = ps or last + 1
@@ -134,7 +134,7 @@ local function format(msg, w)
 			pos = posn+1
 		end
 		ss, se = string.find(msg, "%s+", pos)
-		ps, pe, pc = string.find(msg, "%s*([^%a%c%d\\])", pos)
+		ps, pe, pc = string.find(msg, "%s*([%.,:;!?])", pos)
 	end
 	if pos <= last then words[#words+1] = string.sub(msg, pos) end
 
