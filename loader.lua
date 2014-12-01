@@ -66,6 +66,8 @@
 	unop ::= '-' | 'not' | '#' | '~'
 --]]
 
+---------- lua lexer ---------------------------------------------------
+
 local function mkset(t)
 	local r = {}
 	for _, v in ipairs(t) do r[v] = true end
@@ -262,6 +264,8 @@ local function lualexer(str, skipws)
 	end
 end
 
+---------- end of lua lexer --------------------------------------------
+
 local function expand_tabs(txt, tw)
 	tw = tw or 4
 	local tbl = {}
@@ -307,7 +311,10 @@ local function lualoader(file)
 		end
 	end
 	
-	return { txt = srct, lines = #srct, canbrk = canbrk, breakpts = {}, selected = 0 }
+	return { src = srct, lines = #srct, canbrk = canbrk, breakpts = {}, selected = 0 }
 end
 
-return lualoader
+return {
+	lualoader = lualoader,
+	lualexer = lualexer
+}

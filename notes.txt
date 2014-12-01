@@ -34,8 +34,9 @@ commands:
 
 todo:
 
+	- check lua 5.1, mac os X (ongoing)
 	- properly parse source files to create a list of breakable lines
 	- color tokens on source window?
-	- check lua 5.1, mac os X
 	- accept function names for breakpoints, and find the proper line for that.
 	- configurable colors?
+	- table inspector

@@ -45,7 +45,7 @@ local unpack = unpack or table.unpack
 
 ---------- modules -----------------------------------------------------
 
-local lua_loader = require "loader"
+local loader = require "loader"
 local ui = require "ui"
 
 ---------- misc helpers ------------------------------------------------
@@ -128,7 +128,7 @@ local function get_file(file)
 			fn = basedir .. '/' .. file
 		end
 	
-		local src, err = lua_loader(fn)
+		local src, err = loader.lualoader(fn)
 		if not src then
 			return nil, err
 		end
@@ -141,13 +141,15 @@ local function set_current_file(file)
 	local src, err = get_file(file)
 	if not src then
 		output_error(err)
-		src = lua_loader()
+		src = loader.lualoader()
 	end
 	current_file = file
 	current_src = src
 end
 
 ---------- render display ----------------------------------------------
+
+-- source display
 
 local function displaysource_renderrow(r, s, x, y, w, extra)
 	if s == nil then return end
@@ -180,31 +182,93 @@ local function displaysource(source, x, y, w, h)
 		isbrk = source.breakpts,
 		cur = current_line,
 		sel = selected_line,
-		linew = math.ceil(log10(source.lines))
+		linew = math.floor(log10(source.lines)) + 1
 	}
 	local first = (selected_line and selected_line or current_line) - math.floor(h/2)
 
 	if first < 1 then
 		first = 1
-	elseif first + h > #source.txt then
-		first = #source.txt - h + 2
+	elseif first + h > #source.src then
+		first = #source.src - h + 2
 	end
-	ui.drawlist(source.txt, first, x, y, w, h, displaysource_renderrow, extra)
+	ui.drawlist(source.src, first, x, y, w, h, displaysource_renderrow, extra)
 end
 
+-- pinned variables display
+
 local function displaypinned_renderrow(r, s, x, y, w, extra)
-	local w1 = math.floor((w - 3) / 2)
+	local w1 = extra.w1
 	local w2 = w - w1
 	if s then
 		ui.drawfield(x, y, string.format("%2d:", r), 3)
-		ui.drawfield(x + 3, y, s[1], w1 - 1)
-		ui.setcell(x + 3 + w1 - 1, y, '=')
-		ui.drawfield(x + 3 + w1, y, s[2], w2)
+		ui.drawfield(x + 3, y, s[1], w1)
+		ui.setcell(x + 3 + w1, y, '=')
+		ui.drawfield(x + 3 + w1 + 1, y, s[2], w2)
 	end
 end
 
+-- we could just feed the reply from the debuggee into loadstring, but
+-- then we would lose the already serialized data, so we parse it into a
+-- flat table here.
+
+local function displaypinned_readres_table(res, tokens, start)
+	local lv = 1
+	local t, s, e
+	repeat
+		t, s, e = tokens()
+		local tv = string.sub(res, s, e)
+		if tv == '{' then
+			lv = lv + 1
+		elseif tv == '}' then
+			lv = lv - 1
+		end
+	until lv == 0
+	return start, e
+end
+
+local function displaypinned_readres_skips(tokens)
+	local t, s, e, tv
+	repeat
+		t, s, e = tokens()
+	until t ~= 'spc' and t ~= 'com'
+	return t, s, e
+end
+
+local function displaypinned_readres(res)
+	local tokens = loader.lualexer(res)
+	if not tokens then return nil end
+
+	local rest = {}
+	local t, s, e = tokens()
+	local tv = string.sub(res, s, e)
+	if tv ~= '{' then return nil end
+	
+	repeat
+		t, s, e = displaypinned_readres_skips(tokens)
+		tv = string.sub(res, s, e)
+
+		if tv == '{' then
+			s, e = displaypinned_readres_table(res, tokens, s)
+			rest[#rest+1] = string.sub(res, s, e)
+			t, s, e = displaypinned_readres_skips(tokens)
+			tv = string.sub(res, s, e)
+			if tv ~= ',' and tv ~= '}' then output_error("unexpected token '"..tv.."'") end
+		elseif tv ~= '}' then
+			local mys = s
+			repeat
+				t, s, e = tokens()
+				if e then tv = string.sub(res, s, e) end
+			until tv == ',' or tv == '}'
+			rest[#rest+1] = string.sub(res, mys, e-1)
+		end
+	
+	until tv == '}'
+	return rest
+end
+
 local function displaypinned(pinned, x, y, w, h)
-	local extra
+	local extra = {}
+	local w1, dw1 = 1, math.floor((w - 3) / 2) - 1
 	if h > 99 then h = 99 end
 	while #pinned > h do
 		table.remove(pinned, 1)
@@ -215,15 +279,21 @@ local function displaypinned(pinned, x, y, w, h)
 	end
 	cmd = cmd .. "return t;end"
 	local res, _, err = mdb.handle("exec "..cmd, client)
+	local rt = {}
 	if res then
-		local rt = loadstring("return "..res)()
-		for i=1, #pinned do
-			pinned[i][2] = rt[i]
-		end
+		--rt = loadstring("return "..res)()
+		rt = displaypinned_readres(res)
 	end
+	for i=1, #pinned do
+		if #pinned[i][1] > w1 then w1 = #pinned[i][1] end
+		pinned[i][2] = rt[i]
+	end
+	extra.w1 = (w1 < dw1) and w1 or dw1
 	ui.rect(x, y, w, h)
 	ui.drawlist(pinned, 1, x, y, w, h, displaypinned_renderrow, extra)
 end
+
+-- commands display
 
 local function displaycommands(cmds, x, y, w, h)
 	local nco = #cmds
@@ -390,6 +460,7 @@ local function dbg_help()
 	ui.text(t, "Commands")
 end
 
+-- we're only interested in the source positions part
 local function dbg_stack()
 	local res, line, err = mdb.handle("stack", client)
 	if res then
@@ -581,7 +652,7 @@ local function dbg_gotoline(file, line)
 		current_file = file
 		current_src = src
 	end
-	if line < 1 or line > #current_src.txt then
+	if line < 1 or line > #current_src.src then
 		return nil, "line number out of range"
 	end
 	selected_line = line
@@ -664,6 +735,14 @@ local use_selection = {
 	['d'] = function() if current_src.breakpts[selected_line] then return "db " .. tostring(selected_line) else return "d" end end,
 }
 
+-- argspec:
+-- nil	any argument list
+-- *	any argument list with at least one argument. May also be the
+--		last char in a spec when 1 or more args should follow.
+-- c,C	char or optional char
+-- n,N	number or optional number
+-- s,S	string or optional string. A string may either be enclosed by
+--		quotes (' or "), or a word with no space characters in it.
 local function dbg_verify_args(argspec, args)
 	local function invarg(n, t)
 		return nil, "invalid argument #"..n..": " ..t.." expected"
@@ -817,6 +896,7 @@ local main = coroutine.create(function()
 		end
 	end
 
+	ui.clear(ui.color.WHITE, ui.color.BLACK)
 	local ok, err = startup(port)
 	if not ok then error(err) end
 
