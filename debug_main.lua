@@ -16,13 +16,6 @@ os.exit = function() coroutine.yield(_os_exit) end
 local mdb = require "mobdebug"
 local socket = require "socket"
 
---[[  debug only
-setmetatable(_G, {
-	__newindex = function(t, n, v) error("attempt to set global variable "..n) end,
-	__index =  function(t, n) error("attempt to read global variable "..n) end 
-} )
---]]
-
 local port = 8172 -- default
 
 local client
@@ -211,11 +204,11 @@ end
 -- then we would lose the already serialized data, so we parse it into a
 -- flat table here.
 
-local function displaypinned_readres_table(res, tokens, start)
+local function displaypinned_readres_table(res, next_token, start)
 	local lv = 1
 	local t, s, e
 	repeat
-		t, s, e = tokens()
+		t, s, e = next_token()
 		local tv = string.sub(res, s, e)
 		if tv == '{' then
 			lv = lv + 1
@@ -226,40 +219,62 @@ local function displaypinned_readres_table(res, tokens, start)
 	return start, e
 end
 
-local function displaypinned_readres_skips(tokens)
+local function displaypinned_readres_skips(next_token)
 	local t, s, e, tv
 	repeat
-		t, s, e = tokens()
+		t, s, e = next_token()
 	until t ~= 'spc' and t ~= 'com'
 	return t, s, e
 end
 
 local function displaypinned_readres(res)
-	local tokens = loader.lualexer(res)
-	if not tokens then return nil end
+	local next_token = loader.lualexer(res)
+	if not next_token then return nil end
 
 	local rest = {}
-	local t, s, e = tokens()
+	local nidx = 1
+	local t, s, e = next_token()
 	local tv = string.sub(res, s, e)
 	if tv ~= '{' then return nil end
 	
 	repeat
-		t, s, e = displaypinned_readres_skips(tokens)
+		t, s, e = displaypinned_readres_skips(next_token)
 		tv = string.sub(res, s, e)
 
 		if tv == '{' then
-			s, e = displaypinned_readres_table(res, tokens, s)
-			rest[#rest+1] = string.sub(res, s, e)
-			t, s, e = displaypinned_readres_skips(tokens)
+			s, e = displaypinned_readres_table(res, next_token, s)
+			rest[nidx] = string.sub(res, s, e)
+			t, s, e = displaypinned_readres_skips(next_token)
 			tv = string.sub(res, s, e)
 			if tv ~= ',' and tv ~= '}' then output_error("unexpected token '"..tv.."'") end
+			nidx = nidx + 1
+		elseif tv == '[' then
+			t, s, e = next_token()
+			tv = string.sub(res, s, e)
+			if t ~= 'num' then
+				output_error("unexpected token '"..tv.."'")
+				return {}
+			end
+			nidx = tonumber(tv)
+			t, s, e = displaypinned_readres_skips(next_token)
+			tv = string.sub(res, s, e)
+			if tv ~= ']' then
+				output_error("unexpected token '"..tv.."'")
+				return {}
+			end
+			t, s, e = displaypinned_readres_skips(next_token)
+			tv = string.sub(res, s, e)
+			if tv ~= '=' then
+				output_error("unexpected token '"..tv.."'")
+			end
 		elseif tv ~= '}' then
 			local mys = s
 			repeat
-				t, s, e = tokens()
+				t, s, e = next_token()
 				if e then tv = string.sub(res, s, e) end
 			until tv == ',' or tv == '}'
-			rest[#rest+1] = string.sub(res, mys, e-1)
+			rest[nidx] = string.sub(res, mys, e-1)
+			nidx = nidx + 1
 		end
 	
 	until tv == '}'
@@ -273,9 +288,9 @@ local function displaypinned(pinned, x, y, w, h)
 	while #pinned > h do
 		table.remove(pinned, 1)
 	end
-	local cmd = "do local t = {};"
+	local cmd = "do local t, _k, _e = {};"
 	for i=1, #pinned do
-		cmd = cmd .. "t[" .. i .. "]="..pinned[i][1]..";"
+		cmd = cmd .. "_k, _e = pcall(function() t[" .. i .. "]="..pinned[i][1].." end);"
 	end
 	cmd = cmd .. "return t;end"
 	local res, _, err = mdb.handle("exec "..cmd, client)
@@ -449,7 +464,7 @@ local function dbg_help()
 		"B dir         | set basedir",
 		"L dir         | set only local basedir",
 		"P             | toggle pinned expressions display",
-		"G [file] num  | goto line in file or current file",
+		"G [file] [num]| goto line in file or current file or to file",
 		"W[b|!] file   | write setup.",
 		"h             | help",
 		"q             | quit",
@@ -646,18 +661,22 @@ end
 dbg_args[dbg_basedir] = "s"
 
 local function dbg_gotoline(file, line)
+	if not file and not line then
+		return nil, "file or line number or both expected"
+	end
 	if file then
 		local src, err = get_file(file)
 		if not src then return nil, err end
 		current_file = file
 		current_src = src
+		if not line then line = 1 end
 	end
 	if line < 1 or line > #current_src.src then
 		return nil, "line number out of range"
 	end
 	selected_line = line
 end
-dbg_args[dbg_gotoline] = "Sn"
+dbg_args[dbg_gotoline] = "SN"
 
 local function dbg_toggle_pinned()
 	display_pinned = not display_pinned

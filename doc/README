@@ -190,10 +190,11 @@ key.
 	the debuggee, but if that runs on a remote machine, you need to set
 	the local basedir to point to a local copy of the debuggee using this.
 
-`G [file] num`
+`G [file] [num]`
 :	go to and select line number num in file file, or if that was omitted
 	in the current file. If file is given and has not already been loaded,
-	load the file.
+	load the file. If num but not file was omitted, then go to line 1 of
+	file.
 
 up/down/page up/page down
 :	navigate source file
