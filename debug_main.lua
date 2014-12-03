@@ -7,6 +7,41 @@
 	Released under MIT/X11 license. See file LICENSE for details.
 --]]
 
+---------- configure your colors here ----------------------------------
+
+local default_fg = "WHITE"
+local default_bg = "BLACK"
+
+local configuration = {
+	-- default
+	fg = "WHITE",
+	bg = "BLACK",
+
+	-- variable display
+	var_fg = "WHITE",
+	var_bg = "BLUE",
+
+	-- misc foregrounds: breakpoint mark, current line mark, and message
+	-- after client terminated
+	mark_bpt_fg = "RED",
+	mark_cur_fg = "CYAN",
+	done_fg = "RED",
+	
+	-- windows (help, dialogs)
+	widget_fg = "WHITE",
+	widget_bg = "BLUE",
+
+	-- selection
+	sel_fg = "BLACK",
+	sel_bg = "CYAN",
+
+	-- ui elements (buttons etc). selected elements will use sel_*
+	elem_fg = "BLUE",
+	elem_bg = "WHITE",
+}
+
+---------- end configure section ---------------------------------------
+
 -- these are necessary because the mobdebug module recklessly calls
 -- print and os.exit(!)
 local _G_print = _G.print
@@ -140,6 +175,25 @@ local function set_current_file(file)
 	current_src = src
 end
 
+---------- configuration -----------------------------------------------
+
+local config = setmetatable({}, {
+	__index = function(_, col)
+		if string.find(col, "fg$") then
+			return ui.color[default_fg]
+		else
+			return ui.color[default_bg]
+		end
+	end
+})
+
+local function configure()
+	for k, v in pairs(configuration) do
+		config[k] = ui.color[v]
+		pcall(ui.configure, { k = v })
+	end
+end
+
 ---------- render display ----------------------------------------------
 
 -- source display
@@ -154,17 +208,17 @@ local function displaysource_renderrow(r, s, x, y, w, extra)
 	ui.drawfield(x, y, rs, linew)
 
 	if isbrk[r] then
-		ui.setcell(x + linew, y, '*', ui.color.RED, ui.color.BLACK)
+		ui.setcell(x + linew, y, '*', config.mark_bpt_fg, config.bg)
 	end
 	if extra.cur == r then
-		ui.setcell(x + linew + 1, y, '-', ui.color.CYAN, ui.color.BLACK)
-		ui.setcell(x + linew + 2, y, '>', ui.color.CYAN, ui.color.BLACK)
+		ui.setcell(x + linew + 1, y, '-', config.mark_cur_fg, config.bg)
+		ui.setcell(x + linew + 2, y, '>', config.mark_cur_fg, config.bg)
 	end
 
 	local fg, bg = ui.attributes()
 	
 	if extra.sel == r then
-		ui.attributes(ui.getconfig('sel_fg'), ui.getconfig('sel_bg'))
+		ui.attributes(config.sel_fg, config.sel_bg)
 	end
 
 	return ui.drawfield(x + linew + 3, y, tostring(s), w - linew - 3)
@@ -331,12 +385,12 @@ local function display()
 		pinw = 0
 	end
 	
-	ui.clear(ui.color.WHITE, ui.color.BLACK)
+	ui.clear(config.fg, config.bg)
 	ui.drawstatus({"Skript: "..(basefile or ""), "Dir: "..(basedir or ""), "press h for help"}, 1, ' | ')
 
 	-- variables view
 	if pinw > 0 then
-		ui.attributes(ui.color.WHITE, ui.color.BLUE)
+		ui.attributes(config.var_fg, config.var_bg)
 		displaypinned(pinned_evals, srcw + 1, 2, pinw, srch-1)
 	end
 
@@ -367,12 +421,12 @@ local function display()
 		end
 	end
 		
-	ui.attributes(ui.color.WHITE, ui.color.BLACK)
+	ui.attributes(config.fg, config.bg)
 	displaysource(current_src, 1, 2, srcw, srch-1)
 	ui.drawstatus({"File: "..current_file, "Line: "..current_line.."/"..current_src.lines, #pinned_evals > 0 and "pinned: " .. #pinned_evals or ""}, srch + 1)
 	
 	-- commands view
-	ui.attributes(ui.color.WHITE, ui.color.BLACK)
+	ui.attributes(config.fg, config.bg)
 	displaycommands(cmd_output, 1, srch + 1, w, cmdh)
 	
 	-- input line
@@ -405,7 +459,7 @@ local function find_current_basedir()
 end
 
 local function startup()
-	ui.attributes(ui.getconfig('fg'), ui.getconfig('bg'))
+	ui.attributes(config.widget_fg, config.widget_bg)
 
 	local msg = "Waiting for connections on port "..port
 	local x, y, w, h = ui.frame(#msg, 5, "debug.lua")
@@ -448,7 +502,6 @@ end
 local dbg_args = {}
 
 local function dbg_help()
-	local em = ui.color.WHITE + ui.format.BOLD
 	local t = {
 		"n             | step over next statement",
 		"s             | step into next statement",
@@ -746,6 +799,10 @@ local use_selection = {
 	['d'] = function() if current_src.breakpts[selected_line] then return "db " .. tostring(selected_line) else return "d" end end,
 }
 
+local use_current = {
+	['d'] = function() if current_src.breakpts[current_line] then return "db " .. tostring(current_line) else return "d" end end,
+}
+
 -- argspec:
 -- nil	any argument list
 -- *	any argument list with at least one argument. May also be the
@@ -905,6 +962,8 @@ local function dbg_loop()
 				local prefill = ch
 				if selected_line and use_selection[ch] then
 					prefill = use_selection[ch]()
+				elseif use_current[ch] then
+					prefill = use_current[ch]()
 				end
 				ui.setcell(1, h, ">")
 				cmdl = ui.input(2, h, w, prefill)
@@ -950,7 +1009,9 @@ end
 
 ok, err = pcall(function()
 
-	ui.outputmode(ui.color.COL256)
+	ui.outputmode(ui.output.COL256)
+	configure()
+
 	local w, h = ui.size()
 	local quit = false
 
@@ -974,7 +1035,7 @@ ok, err = pcall(function()
 	end
 
 	while not quit do
-		ui.clear(ui.color.WHITE, ui.color.BLACK)
+		ui.clear(config.fg, config.bg)
 		local ok, err = startup(port)
 		if ok == nil then
 			error(err)
@@ -1005,11 +1066,12 @@ ok, err = pcall(function()
 		
 		if err == _os_exit then
 			local w, h = ui.size()
-			ui.attributes(ui.color.RED + ui.format.BOLD, ui.color.BLACK)
+			ui.attributes(config.done_fg + ui.format.BOLD, config.bg)
 			ui.drawfield(1, h, "Debugged program terminated, press any key.", w)
 			ui.hidecursor()
 			ui.present()
 			ui.waitkeypress()
+			output("Debugged program terminated, restarting")
 		elseif err then
 			_G_print("Error: " .. err)
 			_G_print(debug.traceback(loop))

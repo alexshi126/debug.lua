@@ -3,17 +3,14 @@ local tfx = require "termfx"
 local config
 local function resetconfig()
 	config = {
-		fg = tfx.color.WHITE,
-		bg = tfx.color.BLUE,
+		widget_fg = tfx.color.WHITE,
+		widget_bg = tfx.color.BLUE,
 
 		sel_fg = tfx.color.BLACK,
 		sel_bg = tfx.color.CYAN,
 
-		ui_fg = tfx.color.CYAN,
-		ui_bg = tfx.color.BLUE,
-
-		elem_bg = tfx.color.WHITE,
 		elem_fg = tfx.color.BLUE,
+		elem_bg = tfx.color.WHITE,
 		
 		sep = '|'
 	}
@@ -314,7 +311,7 @@ local function text(tbl, title)
 		if lw > w then w = lw end
 	end
 	
-	tfx.attributes(config.fg, config.bg)
+	tfx.attributes(config.widget_fg, config.widget_bg)
 	x, y, w, h = frame(w, th, title)
 	if th > h then
 		x, y, w, h = frame(w+1, th, title)
@@ -322,7 +319,7 @@ local function text(tbl, title)
 	
 	repeat
 		x, y, w, h = frame(w, h, title)
-		tfx.attributes(config.fg, config.bg)
+		tfx.attributes(config.widget_fg, config.widget_bg)
 		first = drawtext(tbl, first, x, y, w, h)
 		tfx.present()
 		
@@ -349,7 +346,7 @@ local function ask(msg, btns, title)
 	local sel = 1
 	btns = btns or { "Yes", "No" }
 
-	tfx.attributes(config.fg, config.bg)
+	tfx.attributes(config.widget_fg, config.widget_bg)
 
 	local bw = #btns[1]
 	for i = 2, #btns do

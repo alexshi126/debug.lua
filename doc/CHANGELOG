@@ -4,6 +4,9 @@
 
 * no longer exits when the client exits, instead returns to the startup
   screen. Exits only on q command.
+* d now also prefills input with db <current_line> if current line has a
+  breakpoint
+* made colors configurable
 
 ## Version 0.8 ##
 

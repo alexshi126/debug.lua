@@ -41,5 +41,6 @@ todo:
 	- configurable colors?
 	- add table inspector
 	- add watchpoints or conditions for breakpoints
-	- d also db when execution on breaked line
 	- temporary breakpoints
+	- fix redraw on resize
+	
