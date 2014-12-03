@@ -1,5 +1,10 @@
 # CHANGELOG #
 
+## Version 0.9 ##
+
+* no longer exits when the client exits, instead returns to the startup
+  screen. Exits only on q command.
+
 ## Version 0.8 ##
 
 * initial release

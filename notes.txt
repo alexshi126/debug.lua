@@ -11,25 +11,25 @@ stack entries:
 
 commands:
 
-	setb <file> <line>    -- sets a breakpoint
-	delb <file> <line>    -- removes a breakpoint
-	delallb               -- removes all breakpoints
-	setw <exp>            -- adds a new watch expression
+*	setb <file> <line>    -- sets a breakpoint
+*	delb <file> <line>    -- removes a breakpoint
+*	delallb               -- removes all breakpoints
+	setw <exp>            -- adds a new watch expression (conditional breakpoint: breaks if exp evaluates to a true value)
 	delw <index>          -- removes the watch expression at index
 	delallw               -- removes all watch expressions
-	run                   -- runs until next breakpoint
-	step                  -- runs until next line, stepping into function calls
-	over                  -- runs until next line, stepping over function calls
-	out                   -- runs until line after returning from current function
+*	run                   -- runs until next breakpoint
+*	step                  -- runs until next line, stepping into function calls
+*	over                  -- runs until next line, stepping over function calls
+*	out                   -- runs until line after returning from current function
 	listb                 -- lists breakpoints
 	listw                 -- lists watch expressions
-	eval <exp>            -- evaluates expression on the current context and returns its value
-	exec <stmt>           -- executes statement on the current context
+*	eval <exp>            -- evaluates expression on the current context and returns its value
+*	exec <stmt>           -- executes statement on the current context
 	load <file>           -- loads a local file for debugging
 	reload                -- restarts the current debugging session
-	stack                 -- reports stack trace
+*	stack                 -- reports stack trace
 	output stdout <d|c|r> -- capture and redirect io stream (default|copy|redirect)
-	basedir [<path>]      -- sets the base path of the remote application, or shows the current one
+*	basedir [<path>]      -- sets the base path of the remote application, or shows the current one
 	exit                  -- exits debugger
 
 todo:
@@ -37,6 +37,9 @@ todo:
 	- check lua 5.1, mac os X (ongoing)
 	- properly parse source files to create a list of breakable lines
 	- color tokens on source window?
-	- accept function names for breakpoints, and find the proper line for that.
+	- accept function names for breakpoints, and find the proper line for that (parser!)
 	- configurable colors?
-	- table inspector
+	- add table inspector
+	- add watchpoints or conditions for breakpoints
+	- d also db when execution on breaked line
+	- temporary breakpoints

@@ -434,7 +434,7 @@ local function startup()
 		evt = ui.pollevent(0)
 		if evt and (evt.key == ui.key.ESC or evt.char == 'q' or evt.char == 'Q') then
 			server:close()
-			return nil
+			return false
 		end
 	until client ~= nil
 	server:close()
@@ -460,7 +460,6 @@ local function dbg_help()
 		"= expr        | evaluate expression",
 		"! expr        | pin expression",
 		"d! [num]      | delete one or all pinned expressions",
-		"R             | restart debugging session",
 		"B dir         | set basedir",
 		"L dir         | set only local basedir",
 		"P             | toggle pinned expressions display",
@@ -534,12 +533,6 @@ local function dbg_trace(num)
 end
 dbg_args[dbg_trace] = 'N'
 
-local function dbg_reload()
-	local res, line, err = mdb.handle("reload", client)
-	update_where()
-	return nil, err
-end
-
 local function dbg_eval(...)
 	local expr = table.concat({...}, ' ')
 	local res, line, err = mdb.handle("eval " .. expr, client)
@@ -562,13 +555,13 @@ local function dbg_delpin(_, pin)
 	if pin then
 		if pin >= 1 and pin <= #pinned_evals then
 			table.remove(pinned_evals, pin)
-			return "deleted pinned expession #" .. tostring(pin)
+			return "deleted pinned expression #" .. tostring(pin)
 		else
 			return nil, "invalid pin number"
 		end
 	else
 		pinned_evals = {}
-		return "deleted all pinned expessions"
+		return "deleted all pinned expressions"
 	end
 end
 
@@ -732,7 +725,6 @@ local dbg_imm = {
 	['n'] = dbg_over,
 	['r'] = dbg_run,
 	['o'] = dbg_out,
-	['R'] = dbg_reload,
 	['P'] = dbg_toggle_pinned,
 	['.'] = dbg_return,
 }
@@ -893,50 +885,10 @@ local function dbg_execfile(file)
 	return "execution of commands in file '"..file.."' finished"
 end
 
----------- main --------------------------------------------------------
-
-local main = coroutine.create(function()
-
-	ui.outputmode(ui.color.COL256)
-	local w, h = ui.size()
-
-	local opts, err = get_opts("p:d:x:l:h?", arg)
-	if not opts or opts.h or opts['?'] then
-		local ret = err and err .. "\n" or ""
-		return ret .. "usage: "..arg[0] .. " [-p port] [-d dir] [-x file] [-l file]"
-	end
-	if opts.p then
-		port = tonumber(opts.p)
-		if not port then error("argument to -p needs to be a port number") end
-	end
-	if opts.d then
-		basedir = opts.d
-	end
-	if opts.l then
-		cmd_outlog = io.open(opts.l, "w")
-		if not cmd_outlog then
-			output_error("can't write output log '..opts.l..'")
-		end
-	end
-
-	ui.clear(ui.color.WHITE, ui.color.BLACK)
-	local ok, err = startup(port)
-	if not ok then error(err) end
-
+local function dbg_loop()
+	local w, h, evt, cmdl
 	local quit = false
-	local result, err
-	local first = 1
-	local cmdl
-
-	if opts.x then
-		local res, err = dbg_execfile(opts.x)
-		if res then
-			output(res)
-		else
-			output_error(err)
-		end
-	end
-
+	
 	update_where()
 
 	local evt
@@ -990,25 +942,90 @@ local main = coroutine.create(function()
 			end
 		end
 	until quit
+	
+	return quit
+end
+
+---------- main --------------------------------------------------------
+
+ok, err = pcall(function()
+
+	ui.outputmode(ui.color.COL256)
+	local w, h = ui.size()
+	local quit = false
+
+	local opts, err = get_opts("p:d:x:l:h?", arg)
+	if not opts or opts.h or opts['?'] then
+		local ret = err and err .. "\n" or ""
+		return ret .. "usage: "..arg[0] .. " [-p port] [-d dir] [-x file] [-l file]"
+	end
+	if opts.p then
+		port = tonumber(opts.p)
+		if not port then error("argument to -p needs to be a port number") end
+	end
+	if opts.d then
+		basedir = opts.d
+	end
+	if opts.l then
+		cmd_outlog = io.open(opts.l, "w")
+		if not cmd_outlog then
+			output_error("can't write output log '..opts.l..'")
+		end
+	end
+
+	while not quit do
+		ui.clear(ui.color.WHITE, ui.color.BLACK)
+		local ok, err = startup(port)
+		if ok == nil then
+			error(err)
+		elseif ok == false then
+			return
+		end
+
+		local result, err
+		local first = 1
+		local cmdl
+
+		if opts.x then
+			local res, err = dbg_execfile(opts.x)
+			if res then
+				output(res)
+			else
+				output_error(err)
+			end
+		end
+
+		local loop = coroutine.create(dbg_loop)
+		local ok, err = coroutine.resume(loop)
+
+		if client then
+			client:close()
+			client = nil
+		end
+		
+		if err == _os_exit then
+			local w, h = ui.size()
+			ui.attributes(ui.color.RED + ui.format.BOLD, ui.color.BLACK)
+			ui.drawfield(1, h, "Debugged program terminated, press any key.", w)
+			ui.hidecursor()
+			ui.present()
+			ui.waitkeypress()
+		elseif err then
+			_G_print("Error: " .. err)
+			_G_print(debug.traceback(loop))
+			return nil
+		else
+			quit = not ok
+		end
+	end
+
+	return quit
 end)
 
-local ok, err = coroutine.resume(main)
-if err == _os_exit then
-	local w, h = ui.size()
-	ui.attributes(ui.color.RED + ui.format.BOLD, ui.color.BLACK)
-	ui.drawfield(1, h, "Debugged program terminated, press any key.", w)
-	ui.hidecursor()
-	ui.present()
-	ui.waitkeypress()
-end
 ui.shutdown()
-if client then client:close() end
 
-if not ok and err then
+if not ok then
 	_G_print("Error: "..tostring(err))
-	_G_print(debug.traceback(main))
-elseif err then
-	_G_print(err)
 else
 	_G_print("Bye.")
 end

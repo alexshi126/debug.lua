@@ -16,6 +16,9 @@ I wrote it because while there are plenty of integrations of mobdebug
 with lua IDEs, there is no standalone frontend (that I know of), and
 using mobdebug without one is somewhat painful.
 
+debug.lua has been tested on Linux and Mac OS X, with lua 5.1 and 5.2.
+The debuggee can be anything that is supported by mobdebug.
+
 ## Installing ##
 
 debug.lua depends on termfx, mobdebug and by extension luasocket. You
@@ -182,10 +185,6 @@ backtick (\`).
 :	delete pinned expression num, or if called without argument, delete
 	all pinned expressions.
 
-`R`
-:	restart debugging session. This does not work for me, but it seems
-	to be a problem with mobdebug...
-
 #### Source Navigation and other Commands ####
 
 `B dir`
@@ -211,6 +210,7 @@ left/right
 .             
 :	reset view: cancel any line selection and return to the current
 	debugging position.
+
 `P`
 :	toggle pinned expressions display. Note that the pinned expressions
 	display can only be shown if there are pinned expressions.
