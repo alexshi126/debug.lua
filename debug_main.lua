@@ -1007,7 +1007,7 @@ end
 
 ---------- main --------------------------------------------------------
 
-ok, err = pcall(function()
+local ok, val = pcall(function()
 
 	ui.outputmode(ui.output.COL256)
 	configure()
@@ -1029,9 +1029,7 @@ ok, err = pcall(function()
 	end
 	if opts.l then
 		cmd_outlog = io.open(opts.l, "w")
-		if not cmd_outlog then
-			output_error("can't write output log '..opts.l..'")
-		end
+		if not cmd_outlog then error("can't write output log '"..opts.l.."'") end
 	end
 
 	while not quit do
@@ -1057,37 +1055,39 @@ ok, err = pcall(function()
 		end
 
 		local loop = coroutine.create(dbg_loop)
-		local ok, err = coroutine.resume(loop)
+		local ok, val = coroutine.resume(loop)
 
 		if client then
 			client:close()
 			client = nil
 		end
 		
-		if err == _os_exit then
+		if val == _os_exit then
 			local w, h = ui.size()
 			ui.attributes(config.done_fg + ui.format.BOLD, config.bg)
-			ui.drawfield(1, h, "Debugged program terminated, press any key.", w)
+			ui.drawfield(1, h, "Debugged program terminated, press q to quit or any key to restart.", w)
 			ui.hidecursor()
 			ui.present()
-			ui.waitkeypress()
-			output("Debugged program terminated, restarting")
-		elseif err then
-			_G_print("Error: " .. err)
+			quit = ui.waitkeypress() == 'q'
+			output("Debugged program terminated" .. (quit and "" or ", restarting"))
+		elseif val == true then
+			quit = true
+		else
+			_G_print("Error: " .. val)
 			_G_print(debug.traceback(loop))
 			return nil
-		else
-			quit = not ok
 		end
 	end
 
-	return quit
+	return
 end)
 
 ui.shutdown()
 
 if not ok then
-	_G_print("Error: "..tostring(err))
+	_G_print("Error: "..tostring(val))
+elseif val then
+	_G_print(val)
 else
 	_G_print("Bye.")
 end

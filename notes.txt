@@ -38,7 +38,6 @@ todo:
 	- properly parse source files to create a list of breakable lines
 	- color tokens on source window?
 	- accept function names for breakpoints, and find the proper line for that (parser!)
-	- configurable colors?
 	- add table inspector
 	- add watchpoints or conditions for breakpoints
 	- temporary breakpoints

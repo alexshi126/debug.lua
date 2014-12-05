@@ -185,6 +185,7 @@ local function waitkeypress()
 	repeat
 		evt = tfx.pollevent()
 	until evt and evt.type == 'key'
+	return evt.char or evt.key
 end
 
 -- helper
