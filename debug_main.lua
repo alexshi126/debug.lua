@@ -62,6 +62,8 @@ local current_file = ""
 local current_line = 0
 local selected_line
 local select_cmd
+local last_search
+local last_match = 0
 local cmd_output = {}
 local cmd_outlog
 local pinned_evals = {}
@@ -342,11 +344,12 @@ local function displaypinned(pinned, x, y, w, h)
 	while #pinned > h do
 		table.remove(pinned, 1)
 	end
-	local cmd = "do local t, _k, _e = {};"
+	-- this is not strictly hygienic. should find a better solution for it.
+	local cmd = "do local __________t, __________k, __________e = {};"
 	for i=1, #pinned do
-		cmd = cmd .. "_k, _e = pcall(function() t[" .. i .. "]="..pinned[i][1].." end);"
+		cmd = cmd .. "__________k, __________e = pcall(function() __________t[" .. i .. "]="..pinned[i][1].." end);"
 	end
-	cmd = cmd .. "return t;end"
+	cmd = cmd .. "return __________t;end"
 	local res, _, err = mdb.handle("exec "..cmd, client)
 	local rt = {}
 	if res then
@@ -517,6 +520,7 @@ local function dbg_help()
 		"L dir         | set only local basedir",
 		"P             | toggle pinned expressions display",
 		"G [file] [num]| goto line in file or current file or to file",
+		"/ [str]       | search for str in current file, or continue last search",
 		"W[b|!] file   | write setup.",
 		"h             | help",
 		"q             | quit",
@@ -724,6 +728,32 @@ local function dbg_gotoline(file, line)
 end
 dbg_args[dbg_gotoline] = "SN"
 
+local function dbg_searchstr(str)
+	local src = current_src.src
+	local first = 1
+
+	if not str and last_search then
+		str = last_search
+		first = last_match + 1
+	elseif not str and not last_search then
+		return
+	end
+
+	if str then
+		last_search = str
+		for line=first, #src do
+			if string.find(src[line], str, 1, true) then
+				selected_line = line
+				last_match = line
+				return "searching for " .. str
+			end
+		end
+	end
+	last_match = 0
+	return "no match, next / wraps"
+end
+dbg_args[dbg_searchstr] = "S"
+
 local function dbg_toggle_pinned()
 	display_pinned = not display_pinned
 	return (display_pinned and "" or "don't ") .. "display pinned evals"
@@ -791,6 +821,7 @@ local dbg_cmdl = {
 	['B'] = dbg_basedir,
 	['L'] = dbg_local_basedir,
 	['G'] = dbg_gotoline,
+	['/'] = dbg_searchstr,
 	['W'] = dbg_writesetup,
 }
 
@@ -903,7 +934,6 @@ local function dbg_exec(cmdl)
 		end
 		s, e = string.find(cmdl, "^%s"..(quote and '*' or '+').."(%S)", e+1)
 	end
-
 	if dbg_imm[cmd] then
 		if #args == 0 then
 			return dbg_imm[cmd]()
