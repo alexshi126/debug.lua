@@ -202,6 +202,13 @@ backtick (\`).
 	load the file. If num but not file was omitted, then go to line 1 of
 	file.
 
+`/ [str]`
+:	search for str in currently open file. str may be a bare word without
+	spaces, or any string enclosed in single or double quotes. If str is
+	omitted, the previous search string will be used, and the search will
+	be continued on the line after the last match. The line where a match
+	is found will be selected.
+
 up/down/page up/page down
 :	navigate source file
 

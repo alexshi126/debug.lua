@@ -7,6 +7,9 @@
 * d now also prefills input with db <current_line> if current line has a
   breakpoint
 * made colors configurable
+* added optional quit on client exit
+* added support for lua skripts with #! at the start
+* added search in current source file
 
 ## Version 0.8 ##
 
