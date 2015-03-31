@@ -161,7 +161,7 @@ local function lex_comment(str, pos)
 	if not s then return nil end
 	t, s, e = lex_longstr(str, pos+2)
 	if not s then
-		s, e = find(str, "^--[^\n]+\n", pos)
+		s, e = find(str, "^--[^\n]*\n", pos)
 		e = e - 1
 	elseif not t then
 		return nil, "unfinished comment"
@@ -196,7 +196,14 @@ local function lualexer(str, skipws)
 		local pos = 1
 		local line, col = 1, 1
 		local ch, t, s, e, l, c
-		
+
+		-- skip initial #! if present
+		s, e = string.find(str, "^#![^\n]*\n")
+		if s then
+			line = 2
+			pos = e + 1
+		end
+
 		while pos <= #str do
 			ch = string.sub(str, pos, pos)
 			if ch == '-' then

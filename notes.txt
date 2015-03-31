@@ -42,4 +42,5 @@ todo:
 	- add watchpoints or conditions for breakpoints
 	- temporary breakpoints
 	- fix redraw on resize
-	
+	- lines with only end not breakable
+	- lines with only function definitions ([local] function ...() or [local] xxx = function()) not breakable

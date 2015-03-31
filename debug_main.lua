@@ -1083,6 +1083,8 @@ local ok, val = pcall(function()
 end)
 
 ui.shutdown()
+if outlog then outlog:close() end
+if client then client:close() end
 
 if not ok then
 	_G_print("Error: "..tostring(val))
