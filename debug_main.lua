@@ -78,6 +78,22 @@ local unpack = unpack or table.unpack
 local loader = require "loader"
 local ui = require "ui"
 
+---------- initialization ----------------------------------------------
+
+local function init()
+	sources = {}
+	current_src = {}
+	current_file = ""
+	current_line = 0
+	selected_line = nil
+	select_cmd = nil
+	last_search = nil
+	last_match = 0
+	cmd_output = {}
+	pinned_evals = {}
+	display_pinned = true
+end
+
 ---------- misc helpers ------------------------------------------------
 
 local function output(...)
@@ -462,6 +478,8 @@ local function find_current_basedir()
 end
 
 local function startup()
+	init()
+
 	ui.attributes(config.widget_fg, config.widget_bg)
 
 	local msg = "Waiting for connections on port "..port
@@ -1092,7 +1110,7 @@ local ok, val = pcall(function()
 			client = nil
 		end
 		
-		if val == _os_exit then
+		if ok and val == _os_exit then
 			local w, h = ui.size()
 			ui.attributes(config.done_fg + ui.format.BOLD, config.bg)
 			ui.drawfield(1, h, "Debugged program terminated, press q to quit or any key to restart.", w)
@@ -1100,11 +1118,11 @@ local ok, val = pcall(function()
 			ui.present()
 			quit = ui.waitkeypress() == 'q'
 			output("Debugged program terminated" .. (quit and "" or ", restarting"))
-		elseif val == true then
+		elseif ok and val == true then
 			quit = true
 		else
-			_G_print("Error: " .. val)
-			_G_print(debug.traceback(loop))
+			output("Error: " .. val)
+			output(debug.traceback(loop))
 			return nil
 		end
 	end

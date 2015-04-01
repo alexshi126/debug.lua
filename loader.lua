@@ -291,8 +291,24 @@ local function expand_tabs(txt, tw)
 	return table.concat(tbl)
 end
 
+-- this should somehow also catch lines with only a [local] function(...)
+local function breakable(t, src, s, e)
+	if t == 'key' then
+		local what = string.sub(src, s, e)
+		if what == 'end' then
+			return false
+		end
+	elseif t == 'other' then
+		local what = string.sub(src, s, e)
+		if what == ')' or what == '}' or what == ']' then
+			return false
+		end
+	end
+	return true
+end
+
 -- very simple for the time being: we consider every line that has a
--- token other than com or spc breakable.
+-- token other than com or spc or the keyword 'end' breakable.
 local function lualoader(file)
 	local srct = {}
 	local canbrk = {}
@@ -307,7 +323,7 @@ local function lualoader(file)
 		
 		local tokens = lualexer(src)
 		for t, s, e, l, c in tokens do
-			if t ~= 'com' and t ~= 'spc' then
+			if t ~= 'com' and t ~= 'spc' and breakable(t, src, s, e) then
 				canbrk[l] = true
 			end
 		end
