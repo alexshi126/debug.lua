@@ -2,11 +2,13 @@
 
 ## Version 0.9 ##
 
+* removed (R)estart command, misunderstood what it does.
 * no longer exits when the client exits, instead returns to the startup
   screen. Exits only on q command.
 * d now also prefills input with db <current_line> if current line has a
   breakpoint
-* made colors configurable
+* made colors configurable (in a way... you need to edit a table in the
+  source code)
 * added optional quit on client exit
 * added support for lua skripts with #! at the start
 * added search in current source file
