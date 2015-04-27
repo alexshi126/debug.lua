@@ -1,5 +1,13 @@
 # CHANGELOG #
 
+## Version ... ##
+
+* fixed bug where last line in a source file would not be read if it did
+  not end in a newline
+* added conditional breakpoints
+* when called with `-l file` argument, debug.lua will now also log all
+  pinned expressions to the output log whenever they're updated.
+
 ## Version 0.9 ##
 
 * removed (R)estart command, misunderstood what it does.

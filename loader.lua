@@ -293,7 +293,9 @@ end
 
 -- this should somehow also catch lines with only a [local] function(...)
 local function breakable(t, src, s, e)
-	if t == 'key' then
+	if t == "com" or t == "spc" then
+		return false
+	elseif t == 'key' then
 		local what = string.sub(src, s, e)
 		if what == 'end' then
 			return false
@@ -323,11 +325,14 @@ local function lualoader(file)
 		
 		local tokens = lualexer(src)
 		for t, s, e, l, c in tokens do
-			if t ~= 'com' and t ~= 'spc' and breakable(t, src, s, e) then
+			if breakable(t, src, s, e) then
 				canbrk[l] = true
 			end
 		end
 
+		if string.sub(src, #src, 1) ~= "\n" then
+			src = src .. "\n"
+		end
 		string.gsub(src, "([^\r\n]*)\r?\n", function(s) table.insert(srct, s) end)
 		for i = 1, #srct do
 			srct[i] = expand_tabs(srct[i])

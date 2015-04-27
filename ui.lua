@@ -88,7 +88,7 @@ local function drawframe(x, y, w, h, title)
 
 	if title then
 		if w < pw then pw = w end
-		tfx.printat(x + (w - pw) / 2, y - 1, title, pw)
+		tfx.printat(math.floor(x + (w - pw) / 2), y - 1, title, pw)
 	end
 	
 	return x, y, w, h

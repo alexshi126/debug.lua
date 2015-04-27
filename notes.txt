@@ -35,12 +35,9 @@ commands:
 todo:
 
 	- check lua 5.1, mac os X (ongoing)
-	- properly parse source files to create a list of breakable lines
 	- color tokens on source window?
 	- accept function names for breakpoints, and find the proper line for that (parser!)
 	- add table inspector
-	- add watchpoints or conditions for breakpoints
-	- temporary breakpoints
+	- fix output of tables and stuff (spaces after . :)
 	- fix redraw on resize
-	- lines with only end not breakable
 	- lines with only function definitions ([local] function ...() or [local] xxx = function()) not breakable

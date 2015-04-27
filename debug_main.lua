@@ -269,6 +269,9 @@ local function displaypinned_renderrow(r, s, x, y, w, extra)
 		ui.drawfield(x + 3, y, s[1], w1)
 		ui.setcell(x + 3 + w1, y, '=')
 		ui.drawfield(x + 3 + w1 + 1, y, s[2], w2)
+		if cmd_outlog then
+			cmd_outlog:write(r, ":\t", s[1], " = ", tostring(s[2]), "\n")
+		end
 	end
 end
 
@@ -469,8 +472,20 @@ local function unquote(s)
 end
 
 local function find_current_basedir()
-	local pwd = unquote(mdb.handle("eval os.getenv('PWD')", client))
-	local arg0 = unquote(mdb.handle("eval arg[0]", client))
+	local res, line, err = mdb.handle("eval os.getenv('PWD')", client)
+	if not res then
+		output_error(err)
+		return
+	end
+	local pwd = unquote(res)
+
+	res, line, err = mdb.handle("eval arg[0]", client)
+	if not res then
+		output_error(err)
+		return
+	end
+	local arg0 = unquote(res)
+
 	if pwd and arg0 then
 		basedir = basedir or pwd
 		basefile = string.match(arg0, "/([^/]+)$") or arg0
@@ -530,6 +545,7 @@ local function dbg_help()
 		"o             | continue until out of current function",
 		"t [num]       | trace execution",
 		"b [file] line | set breakpoint",
+		"c [f] ln cond | set conditional breakpoint",
 		"db [[file] ln]| delete one or all breakpoints",
 		"= expr        | evaluate expression",
 		"! expr        | pin expression",
@@ -570,6 +586,32 @@ local function update_where()
 		selected_line = nil
 end
 
+local function check_break_cond()
+	if current_src.breakpts[current_line] then
+		if type((current_src.breakpts[current_line])) == "string" then
+			local res, line, err = mdb.handle("eval " .. current_src.breakpts[current_line], client)
+			if err ~= nil then
+				output_error("in breakpoint condition:", err)
+				res = true
+			else
+				local lres = string.lower(res)
+				if lres == "false" or lres == "nil" then
+					res = false
+				else
+					res = true
+				end
+				if res then
+					output("Cond:", current_src.breakpts[current_line], " is true")
+				end
+			end
+			return res
+		else
+			return true
+		end
+	end
+	return false
+end
+
 local function dbg_over()
 	local res, line, err = mdb.handle("over", client)
 	update_where()
@@ -583,8 +625,11 @@ local function dbg_step()
 end
 
 local function dbg_run()
-	local res, line, err = mdb.handle("run", client)
-	update_where()
+	local res, line, err
+	repeat
+		res, line, err = mdb.handle("run", client)
+		update_where()
+	until check_break_cond()
 	return nil, err
 end
 
@@ -601,7 +646,7 @@ local function dbg_trace(num)
 	while not num or steps <= num do
 		res, err = dbg_step()
 		display()
-		if current_src.breakpts[current_line] then return end
+		if check_break_cond() then return end
 		steps = steps + 1
 	end
 	return res, err
@@ -667,6 +712,35 @@ local function dbg_setb(file, line)
 	return res, err
 end
 dbg_args[dbg_setb] = "Sn"
+
+local function dbg_setbcond(file, line, ...)
+	local res, _, err
+	local cond = table.concat({...}, ' ')
+	if file then
+		res, err = get_file(file)
+		if not res then
+			return nil, err
+		end
+	else
+		file = current_file
+	end
+	if not get_file(file).canbrk[line] then
+		return nil, "can't set conditional breakpoint in file '"..file.."' line "..line
+	end
+	if file and line then
+		res, _, err = mdb.handle("setb " .. file .. " " .. line, client)
+		if not err then
+			res = "added conditional breakpoint at " .. res .. " line " .. line
+			get_file(file).breakpts[tonumber(line)] = cond
+		else
+			res = nil
+		end
+	else
+		err = "command requires file (optional) and line number as arguments"
+	end
+	return res, err
+end
+dbg_args[dbg_setbcond] = "Sn*"
 
 local function dbg_delb(file, line)
 	local res, _, err
@@ -787,8 +861,12 @@ local function dbg_writesetup(what, file)
 	end
 	if breaks then
 		for n, s in pairs(sources) do
-			for i, _ in pairs(s.breakpts) do
-				res[#res+1] = string.format('b %q %d', n, i)
+			for i, c in pairs(s.breakpts) do
+				if c == true then
+					res[#res+1] = string.format('b %q %d', n, i)
+				else
+					res[#res+1] = string.format('c %q %d %s', n, i, c)
+				end
 			end
 		end
 	end
@@ -833,6 +911,7 @@ local dbg_imm = {
 local dbg_cmdl = {
 	['t'] = dbg_trace,
 	['b'] = dbg_setb,
+	['c'] = dbg_setbcond,
 	['d'] = dbg_del,
 	['='] = dbg_eval,
 	['!'] = dbg_pin_eval,
@@ -845,6 +924,7 @@ local dbg_cmdl = {
 
 local use_selection = {
 	['b'] = function() return "b " .. tostring(selected_line) end,
+	['c'] = function() return "c " .. tostring(selected_line) .. " " end,
 	['d'] = function() if current_src.breakpts[selected_line] then return "db " .. tostring(selected_line) else return "d" end end,
 }
 

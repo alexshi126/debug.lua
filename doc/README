@@ -31,6 +31,15 @@ Alternatively, if you only downloaded the tarball, you can just copy
 debug.lua whereever you like (eg. /usr/local/bin), and as long as it can
 find it's dependencies, it will run.
 
+Note that for lua 5.3, you will need version 0.61 of mobdebug, which is
+only available directly from mobdebugs github archive:
+<https://github.com/pkulchenko/MobDebug>
+
+You should be able to install it using
+
+	luarocks install https://raw.githubusercontent.com/pkulchenko/MobDebug/master/misc/mobdebug-0.61-1.rockspec
+
+
 ## Using ##
 
 you start debug.lua by typing
@@ -137,7 +146,7 @@ Arguments are delimited by spaces, and can be numbers or strings. String
 arguments can be enclosed by quotes, if they need to contain spaces. In
 the rare event that you actually want to have a quoted string as an
 argument (probably to `=`), you can prefix the opening quote with a
-backtick (\`).
+backtick (\`), or use lua's long string notation.
 
 #### Debugging Commands ####
 
@@ -164,6 +173,10 @@ backtick (\`).
 	be prepopulated with `b` plus this line number, otherwise it will
 	you need to enter the arguments. If file is omitted, uses the file
 	currently in the source display.
+
+`c [file] line cond`
+:	set conditional breakpoint. Like `b`, but he commands `r` and `t`
+	will stop here only if the condition evaluates to a true value. 
 
 `db [[file] line]`
 :	delete breakpoint. If you selected a line in the source file using

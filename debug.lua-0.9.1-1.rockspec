@@ -1,7 +1,7 @@
 package = "debug.lua"
-version = "0.9-1"
+version = "0.9.1-1"
 source = {
-	url = "http://www.tset.de/downloads/debug.lua-0.9-1.tar.gz"
+	url = "http://www.tset.de/downloads/debug.lua-0.9.1-1.tar.gz"
 }
 description = {
 	summary = "A terminal based standalone frontend for mobdebug.",
@@ -19,7 +19,7 @@ supported_platforms = {
 	"unix"
 }
 dependencies = {
-	"lua >= 5.1, < 5.3",
+	"lua >= 5.1, <= 5.3",
 	"termfx >= 0.6",
 	"mobdebug >= 0.55"
 }
