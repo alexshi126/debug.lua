@@ -133,7 +133,7 @@ end
 local function lex_number(str, pos)
 	local t = num
 	local p = pos
-	local s, e = find(str, "^0[xX]", p)
+	local s, e = find(str, "^%-?0[xX]", p)
 	if s then
 		p = e + 1
 		s, e = find(str, "^%x+", p)
@@ -142,15 +142,15 @@ local function lex_number(str, pos)
 		if e then p = e + 1 end
 		s, e = find(str, "^[pP][+-]?%d+", p)
 		if not e then e = p - 1 end
-		if e == pos+2 then return nil end
+		if e == pos+1 then return nil, "malformed number" end
 	else
-		s, e = find(str, "^%d+", p)
+		s, e = find(str, "^%-?%d+", p)
 		if e then p = e + 1 end
 		s, e = find(str, "^%.%d" .. (s and '*' or '+'), p)
 		if e then p = e + 1 end
 		s, e = find(str, "^[eE][+-]?%d+", p)
 		if not e then e = p - 1 end
-		if e < pos then return nil end
+		if e < pos then return nil, "malformed number" end
 	end
 	return "num", pos, e
 end
@@ -208,12 +208,15 @@ local function lualexer(str, skipws)
 			ch = string.sub(str, pos, pos)
 			if ch == '-' then
 				t, s, e = lex_comment(str, pos)
-				if not s then
+				if not t then
+					t, s, e = lex_number(str, pos)
+				end
+				if not t then
 					t, s, e = lex_op(str, pos)
 				end
 			elseif ch == "[" then
 				t, s, e = lex_longstr(str, pos)
-				if not s then
+				if not t then
 					t, s, e = lex_other(str, pos)
 				end
 			elseif ch == "'" or ch == '"' then
@@ -224,17 +227,15 @@ local function lualexer(str, skipws)
 				t, s, e = lex_number(str, pos)
 			elseif find(ch, "%p") then
 				t, s, e = lex_number(str, pos)
-				if not s then
+				if not t then
 					t, s, e = lex_op(str, pos)
 				end
-				if not s then
+				if not t then
 					t, s, e = lex_other(str, pos)
 				end
 			else
 				t, s, e = lex_space(str, pos)
 			end
-
-			if s ~= pos then error("internal error") end
 
 			l, c = line, col
 			if t then
@@ -254,7 +255,7 @@ local function lualexer(str, skipws)
 				coroutine.yield(t, pos, e, l, c)
 			elseif not t then
 				s = s or "invalid token"
-				coroutine.yield(nil, s .. " in line " .. l .. " char " .. c)
+				coroutine.yield('err', s .. " in line " .. l .. " char " .. c)
 				e = pos
 			end
 			pos = e + 1
@@ -325,7 +326,9 @@ local function lualoader(file)
 		
 		local tokens = lualexer(src)
 		for t, s, e, l, c in tokens do
-			if breakable(t, src, s, e) then
+			if t == "err" then
+				return nil, "Error: "..s
+			elseif breakable(t, src, s, e) then
 				canbrk[l] = true
 			end
 		end
@@ -342,7 +345,26 @@ local function lualoader(file)
 	return { src = srct, lines = #srct, canbrk = canbrk, breakpts = {}, selected = 0 }
 end
 
+--[[ DEBUG
+	local file = io.stdin
+	if arg[1] then
+		file = io.open(arg[1], "r")
+		if not file then print("could not open file " .. file) os.exit(1) end
+	end
+
+	local line
+	repeat
+		io.stdout:write("> ")
+		line = file:read()
+		local tokens = lualexer(line)
+		for t, s, e, l, c in tokens do
+			print(t, s, e, l, c)
+		end
+	until not line or line == "" 
+-- DEBUG ]]
+
 return {
 	lualoader = lualoader,
 	lualexer = lualexer
 }
+

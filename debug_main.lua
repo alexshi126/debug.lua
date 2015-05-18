@@ -1201,7 +1201,7 @@ local ok, val = pcall(function()
 		elseif ok and val == true then
 			quit = true
 		else
-			output("Error: " .. val)
+			output_error(val)
 			output(debug.traceback(loop))
 			return nil
 		end

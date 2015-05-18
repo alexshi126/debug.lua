@@ -1,7 +1,7 @@
 package = "debug.lua"
-version = "0.9.1-1"
+version = "0.9.2-1"
 source = {
-	url = "http://www.tset.de/downloads/debug.lua-0.9.1-1.tar.gz"
+	url = "http://www.tset.de/downloads/debug.lua-0.9.2-1.tar.gz"
 }
 description = {
 	summary = "A terminal based standalone frontend for mobdebug.",
