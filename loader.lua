@@ -105,15 +105,22 @@ local function lex_longstr(str, pos)
 	return "str", pos, e
 end
 
-local function lex_shortstr(str, pos)
-	local s, e = find(str, '["\']', pos)
+function lex_shortstr(str, pos)
+	local s, e = find(str, '^["\']', pos)
 	if not s then return nil end
 	local ch = string.sub(str, s, e)
-	s, e = find(str, '^'..ch, pos+1)
-	if not s then s, e = find(str, '[^\\]'..ch, pos+1) end
+	local srch = '[\\\\'..ch..']'
+	repeat
+		s, e = find(str, srch, e+1)
+		if s then
+			ch = string.sub(str, s, e)
+			if ch == '\\' then e = e + 1 end
+		end
+	until not s or ch ~= '\\'
 	if not s then return nil, "unfinished string" end
 	return "str", pos, e
 end
+
 
 local function lex_name(str, pos)
 	local s, e = find(str, "^[%a_][%w_]*", pos)

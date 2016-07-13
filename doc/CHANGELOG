@@ -8,6 +8,7 @@
 * when called with `-l file` argument, debug.lua will now also log all
   pinned expressions to the output log whenever they're updated.
 * fixed number lexing bug in loader.lua
+* fixed short string lexing bug in loader.lua
 * fixed error "handling" in loader.lua
 
 ## Version 0.9 ##
