@@ -1,6 +1,6 @@
 # CHANGELOG #
 
-## Version ... ##
+## Version 0.10 ##
 
 * fixed bug where last line in a source file would not be read if it did
   not end in a newline
@@ -10,6 +10,9 @@
 * fixed number lexing bug in loader.lua
 * fixed short string lexing bug in loader.lua
 * fixed error "handling" in loader.lua
+* added D command as interface to mobdebugs `DONE` command
+* read default port from environment var MOBDEBUG_PORT if it exists
+* added check for required mobdebug version (currently 0.63 or later)
 
 ## Version 0.9 ##
 

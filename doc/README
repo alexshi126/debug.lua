@@ -2,7 +2,7 @@
 
 ## debug.lua ##
 
-Author: Gunnar Zötl , 2014.  
+Author: Gunnar Zötl , 2014-2016.  
 Released under MIT/X11 license. See file LICENSE for details.
 
 ## Introduction ##
@@ -31,14 +31,9 @@ Alternatively, if you only downloaded the tarball, you can just copy
 debug.lua whereever you like (eg. /usr/local/bin), and as long as it can
 find it's dependencies, it will run.
 
-Note that for lua 5.3, you will need version 0.61 of mobdebug, which is
-only available directly from mobdebugs github archive:
-<https://github.com/pkulchenko/MobDebug>
-
-You should be able to install it using
-
-	luarocks install https://raw.githubusercontent.com/pkulchenko/MobDebug/master/misc/mobdebug-0.61-1.rockspec
-
+You will need version 0.63+ of mobdebug, which is available directly
+from mobdebugs github archive: <https://github.com/pkulchenko/MobDebug>
+or from the main luarocks repository.
 
 ## Using ##
 
@@ -76,7 +71,9 @@ and reopen it if there are, using the `P` command.
 :	get help on invocation
 
 `-p port`
-:	change port number
+:	change port number. If you don't use this, debug.lua will try to
+	read it from the environment variable `MOBDEBUG_PORT`, and if that
+	is unset, port defaults to 8172.
 
 `-d dir`
 :	set local basedir
@@ -198,6 +195,9 @@ backtick (\`), or use lua's long string notation.
 `d! [num]`
 :	delete pinned expression num, or if called without argument, delete
 	all pinned expressions.
+
+`D`
+:	stop debugging and continue execution of program until it ends.
 
 #### Source Navigation and other Commands ####
 

@@ -51,7 +51,7 @@ os.exit = function() coroutine.yield(_os_exit) end
 local mdb = require "mobdebug"
 local socket = require "socket"
 
-local port = 8172 -- default
+local port = tonumber((os.getenv("MOBDEBUG_PORT"))) or 8172 -- default
 
 local client
 local basedir, basefile
@@ -561,6 +561,7 @@ local function dbg_help()
 		"[page] up/down| navigate source file",
 		"left/right    | select current line",
 		".             | reset view",
+		"D             | stop debugging and continue execution",
 	}
 	ui.text(t, "Commands")
 end
@@ -635,6 +636,12 @@ end
 
 local function dbg_out()
 	local res, line, err = mdb.handle("out", client)
+	update_where()
+	return nil, err
+end
+
+local function dbg_done()
+	local res, line, err = mdb.handle("done", client)
 	update_where()
 	return nil, err
 end
@@ -905,6 +912,7 @@ local dbg_imm = {
 	['r'] = dbg_run,
 	['o'] = dbg_out,
 	['P'] = dbg_toggle_pinned,
+	['D'] = dbg_done,
 	['.'] = dbg_return,
 }
 
@@ -1135,80 +1143,87 @@ end
 
 ---------- main --------------------------------------------------------
 
-local ok, val = pcall(function()
+local ok, val
 
-	ui.outputmode(ui.output.COL256)
-	configure()
+if tonumber(mdb._VERSION) < 0.63 then
+	ok = nil
+	val = "debug.lua needs at least mobdebug version 0.63"
+else
+	ok, val = pcall(function()
 
-	local w, h = ui.size()
-	local quit = false
+		ui.outputmode(ui.output.COL256)
+		configure()
 
-	local opts, err = get_opts("p:d:x:l:h?", arg)
-	if not opts or opts.h or opts['?'] then
-		local ret = err and err .. "\n" or ""
-		return ret .. "usage: "..arg[0] .. " [-p port] [-d dir] [-x file] [-l file]"
-	end
-	if opts.p then
-		port = tonumber(opts.p)
-		if not port then error("argument to -p needs to be a port number") end
-	end
-	if opts.d then
-		basedir = opts.d
-	end
-	if opts.l then
-		cmd_outlog = io.open(opts.l, "w")
-		if not cmd_outlog then error("can't write output log '"..opts.l.."'") end
-	end
+		local w, h = ui.size()
+		local quit = false
 
-	while not quit do
-		ui.clear(config.fg, config.bg)
-		local ok, err = startup(port)
-		if ok == nil then
-			error(err)
-		elseif ok == false then
-			return
+		local opts, err = get_opts("p:d:x:l:h?", arg)
+		if not opts or opts.h or opts['?'] then
+			local ret = err and err .. "\n" or ""
+			return ret .. "usage: "..arg[0] .. " [-p port] [-d dir] [-x file] [-l file]"
+		end
+		if opts.p then
+			port = tonumber(opts.p)
+			if not port then error("argument to -p needs to be a port number") end
+		end
+		if opts.d then
+			basedir = opts.d
+		end
+		if opts.l then
+			cmd_outlog = io.open(opts.l, "w")
+			if not cmd_outlog then error("can't write output log '"..opts.l.."'") end
 		end
 
-		local result, err
-		local first = 1
-		local cmdl
+		while not quit do
+			ui.clear(config.fg, config.bg)
+			local ok, err = startup(port)
+			if ok == nil then
+				error(err)
+			elseif ok == false then
+				return
+			end
 
-		if opts.x then
-			local res, err = dbg_execfile(opts.x)
-			if res then
-				output(res)
+			local result, err
+			local first = 1
+			local cmdl
+
+			if opts.x then
+				local res, err = dbg_execfile(opts.x)
+				if res then
+					output(res)
+				else
+					output_error(err)
+				end
+			end
+
+			local loop = coroutine.create(dbg_loop)
+			local ok, val = coroutine.resume(loop)
+
+			if client then
+				client:close()
+				client = nil
+			end
+			
+			if ok and val == _os_exit then
+				local w, h = ui.size()
+				ui.attributes(config.done_fg + ui.format.BOLD, config.bg)
+				ui.drawfield(1, h, "Debugged program terminated, press q to quit or any key to restart.", w)
+				ui.hidecursor()
+				ui.present()
+				quit = ui.waitkeypress() == 'q'
+				output("Debugged program terminated" .. (quit and "" or ", restarting"))
+			elseif ok and val == true then
+				quit = true
 			else
-				output_error(err)
+				output_error(val)
+				output(debug.traceback(loop))
+				return nil
 			end
 		end
 
-		local loop = coroutine.create(dbg_loop)
-		local ok, val = coroutine.resume(loop)
-
-		if client then
-			client:close()
-			client = nil
-		end
-		
-		if ok and val == _os_exit then
-			local w, h = ui.size()
-			ui.attributes(config.done_fg + ui.format.BOLD, config.bg)
-			ui.drawfield(1, h, "Debugged program terminated, press q to quit or any key to restart.", w)
-			ui.hidecursor()
-			ui.present()
-			quit = ui.waitkeypress() == 'q'
-			output("Debugged program terminated" .. (quit and "" or ", restarting"))
-		elseif ok and val == true then
-			quit = true
-		else
-			output_error(val)
-			output(debug.traceback(loop))
-			return nil
-		end
-	end
-
-	return
-end)
+		return
+	end)
+end
 
 ui.shutdown()
 if outlog then outlog:close() end
