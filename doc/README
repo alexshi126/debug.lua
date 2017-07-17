@@ -84,6 +84,18 @@ and reopen it if there are, using the `P` command.
 `-l file`
 :	save output log to file
 
+### Configuration Files ###
+
+On startup debug.lua will look for a configuration file debug.lua.cfg
+first in ~/.config and then in the current directory. If both files
+are present, both are loaded and the local file supersedes the one from
+~/.config. With this config file you can change the colors used by debug.lua,
+by either specifying the names of the colors ("BLACK", "RED", "GREEN",
+"YELLOW", "BLUE", "MAGENTA", "CYAN", "WHITE") or a rgb value as a string
+"#rgb" with values for rgb ranging from 0 to 5. A sample configuration file
+can be found in the sample-config directory within the debug.lua distribution.
+
+
 ### The Source Display ###
 
 The top (or, if the pinned expressions display is visible, the top left)

@@ -1,5 +1,11 @@
 # CHANGELOG #
 
+## Version 0.11 ##
+
+* added simple config files to change the colors used by debug.lua
+* fixed a bug where the output of the '=' command was getting formatted
+  on a weird (and also wrong) way
+
 ## Version 0.10 ##
 
 * fixed bug where last line in a source file would not be read if it did
