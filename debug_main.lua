@@ -7,6 +7,9 @@
 	Released under MIT/X11 license. See file LICENSE for details.
 --]]
 
+local config_file = "debug.lua.cfg"
+local user_config = os.getenv("HOME") .. "/.config/" .. config_file
+
 ---------- configure your colors here ----------------------------------
 
 local default_fg = "WHITE"
@@ -95,6 +98,14 @@ local function init()
 end
 
 ---------- misc helpers ------------------------------------------------
+
+local function file_exists(name)
+	local file, err = io.open(name, "r")
+	if file then
+		file:close()
+	end
+	return file ~= nil
+end
 
 local function output(...)
 	local line = table.concat({...}, " ")
@@ -205,11 +216,71 @@ local config = setmetatable({}, {
 	end
 })
 
-local function configure()
+local function decode_color(c)
+	local col = ui.color[c or ""]
+	if col then
+		return col
+	end
+	local r, g, b = string.match(c, "^#([0-5])([0-5])([0-5])$")
+	if r and g and b then
+		col = ui.rgb2color(tonumber(r), tonumber(g), tonumber(b))
+		return col
+	end
+	return nil
+end
+
+local function loadconfig(name)
+	local res = {}
+	local fn, err = loadfile(name, "t", res)
+	print(fn, err)
+	local ok
+	if fn then
+		ok,  err = pcall(fn)
+		if ok then
+			for k, v in pairs(res) do
+				if not configuration[k] then
+					return nil, "Failed to load config file '" .. name .. "': " .. "invalid option '" .. k .. "'"
+				elseif not decode_color(v) then
+					return nil, "Failed to load config file '" .. name .. "': " .. "invalid value for option '" .. k .. "'"
+				end
+			end
+			return res
+		end
+	end
+	return nil, "Failed to load config file " .. err
+end
+
+local function readconfig()
+	local ucfg, lcfg, err
+	if file_exists(user_config) then
+		ucfg, err = loadconfig(user_config)
+		if err then return nil, err end
+	end
+	if file_exists(config_file) then
+		lcfg, err = loadconfig(config_file)
+		if err then return nil, err end
+	end
 	for k, v in pairs(configuration) do
-		config[k] = ui.color[v]
+		if ucfg and ucfg[k] then
+			configuration[k] = ucfg[k]
+		end
+		if lcfg and lcfg[k] then
+			configuration[k] = lcfg[k]
+		end
+	end
+	return true
+end
+
+local function configure()
+	local ok, err = readconfig()
+	if not ok then
+		return ok, err
+	end
+	for k, v in pairs(configuration) do
+		config[k], err = decode_color(v)
 		pcall(ui.configure, { k = v })
 	end
+	return true
 end
 
 ---------- render display ----------------------------------------------
@@ -1121,7 +1192,7 @@ local function dbg_loop()
 				output("->", resa[1])
 				if #resa > 1 then
 					for i = 2, #resa do
-						output("  ", resa[i])
+						output(" >", resa[i])
 					end
 				end
 			end
@@ -1152,7 +1223,10 @@ else
 	ok, val = pcall(function()
 
 		ui.outputmode(ui.output.COL256)
-		configure()
+		local ok, err = configure()
+		if not ok then
+			error(err)
+		end
 
 		local w, h = ui.size()
 		local quit = false

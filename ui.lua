@@ -109,56 +109,14 @@ end
 -- helper
 -- format a string to fit a certain width. Returns a table with the lines
 local function format(msg, w)
-	if not w then return { msg } end
-	local _
-	local last = #msg
-	local pos, posn = 1, 0
-	local ss, se = string.find(msg, "%s+", pos)
-	local ps, pe, pc = string.find(msg, "%s*([%.,:;])", pos)
-	local words = {}
-	while ss or ps do
-		ps = ps or last + 1
-		ss = ss or last + 1
-		if ps <= ss then
-			words[#words+1] = string.sub(msg, pos, ps-1) .. pc
-			pos = pe + 1
-		else
-			words[#words+1] = string.sub(msg, pos, ss - 1)
-			pos = se + 1
-		end
-		_, posn = string.find(msg, "^%s+", pos)
-		if posn then
-			pos = posn+1
-		end
-		ss, se = string.find(msg, "%s+", pos)
-		ps, pe, pc = string.find(msg, "%s*([%.,:;!?])", pos)
-	end
-	if pos <= last then words[#words+1] = string.sub(msg, pos) end
+	if not w or w >= #msg then return { msg } end
+	local pos, last = 1, #msg
+	local res = {}
+	repeat
+		res[#res+1] = string.sub(msg, pos, pos + w - 1)
+		pos = pos + w
+	until pos > last
 
-	local res, ln = {}, nil
-	
-	for i=1, #words do
-		if ln then
-			if #ln + 1 + #words[i] > w then
-				res[#res+1] = ln
-				ln = words[i]
-				while #ln > w do
-					res[#res+1] =  string.sub(ln, 1, w)
-					ln = string.sub(ln, w+1)
-				end
-			else
-				ln = ln .. " " .. words[i]
-			end
-		else
-			ln = words[i]
-			while #ln > w do
-				res[#res+1] =  string.sub(ln, 1, w)
-				ln = string.sub(ln, w+1)
-			end
-		end
-	end
-	if ln then res[#res+1] = ln end
-	
 	return res
 end
 
